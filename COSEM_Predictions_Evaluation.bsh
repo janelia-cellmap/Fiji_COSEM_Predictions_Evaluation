@@ -1,0 +1,370 @@
+import bdv.util.*;
+import ij.*;
+import ij.process.FloatProcessor;
+import ij.gui.*;
+import java.util.concurrent.*;
+import java.util.Arrays;
+import java.util.ArrayList;
+import org.janelia.saalfeldlab.n5.*;
+import org.janeliai.saalfeldlab.n5.imglib2.*;
+import org.janelia.saalfeldlab.n5.imglib2.*;
+import org.janelia.saalfeldlab.n5.hdf5.*;
+import org.janelia.saalfeldlab.n5.googlecloud.*;
+
+import net.imglib2.img.display.imagej.*;
+import net.imglib2.img.imageplus.*;
+import net.imglib2.realtransform.*;
+import net.imglib2.util.*;
+import net.imglib2.view.*;
+
+import ij3d.*;
+import java.awt.event.*;
+
+import ij.plugin.*;
+
+import ij.gui.*;
+
+import fiji.util.gui.GenericDialogPlus;
+
+import java.io.*;
+
+import java.util.concurrent.TimeUnit; //for timing
+
+import ij.util.ThreadUtil;
+
+//Results table
+mean_results_table =  new ij.measure.ResultsTable(1);
+results_table =  new ij.measure.ResultsTable(1);
+results_table.addValue("Prediction 1 Directory", "");
+results_table.addValue("Prediction 2 Directory", "");
+results_table.addValue("Raw Data Directory", "");
+results_table.addValue("Mask Directory", "");
+results_table.addValue("Selected Organelles", "");
+
+//Dialog boxes
+data_select_dialog_box = new GenericDialogPlus("Select Data");
+organelle_select_dialog_box = new NonBlockingGenericDialog("Select Organelles");
+categorize_dialog_box = new NonBlockingGenericDialog("Prediction Comparison");
+selected_organelles_list = new ArrayList();
+
+//Variables
+prediction1_directory = "";
+prediction2_directory = "";
+output_file = "";
+crop_coordinates = "";
+n5_prediction1 = new N5FSReader("");
+n5_prediction2 = new N5FSReader("");
+n5_raw = new N5FSReader("");
+n5_mask = new N5FSReader("");
+organelle_array = new String[6];
+organelle_display_string = "";
+start_coordinates = new long[]{-1, -1, -1};
+end_coordinates = new long[]{-1,-1,-1};
+image_dimensions = new long[]{0,0,0};
+edge_length = 150;
+organelle_image_array = new ImagePlus[2][7];
+composite_images = new CompositeImage[2];
+organelle_crop_count = new int[]{0,0,0,0,0,0};
+	
+public class ReadAndProcessImageInThread implements Runnable {
+	//Class used to read and process images within a thread
+ 	
+ 	//Class parameters needed to read the appropriate data/prediction
+ 	int index_in_image_array, prediction_index;
+ 	String current_organelle;
+ 	n5_current = new N5FSReader("");
+ 	
+	public ReadAndProcessImageInThread(int prediction_supplied, int index_supplied){
+		//Constructor
+
+		//Prediction and indices are provided
+		prediction_index = prediction_supplied;
+		index_in_image_array=index_supplied;
+
+		//The raw data (index 0) is put in index 3 (so it is gray) in the actual image, so need to shift the lower indices
+		if(index_supplied<=3){
+			index_in_image_array--; 
+		}
+		
+		if(index_supplied == 0){//raw data
+			index_in_image_array=3;
+			current_organelle = "/volumes/raw";
+			n5_current=n5_raw;
+		}
+		else{//Predictions
+			current_organelle = organelle_array[index_supplied-1];
+			if(prediction_index==0){ n5_current=n5_prediction1;}
+			else{n5_current=n5_prediction2;}
+		}
+	}
+	
+    public void run(){
+		if (!current_organelle.equals("---None---")){
+			//If an organelle is selected for this channel, read in the data, crop it and convert it to ImagePlus
+			img_current = N5Utils.open(n5_current, current_organelle);
+			img_current_cropped = Views.interval(img_current, start_coordinates, end_coordinates);
+			ImagePlus imp_current_cropped = ImageJFunctions.wrap(img_current_cropped, "temp");
+			if (index_in_image_array==3){//This is the raw data which we adjust differently
+				contrastEnahncer = new ij.plugin.ContrastEnhancer();
+				contrastEnahncer.stretchHistogram(imp_current_cropped, 0.35);
+			}
+			else{//Otherwise, we set the default minimum to 110 since much below this the data is definitely outside of the organelle
+				imp_current_cropped.setDisplayRange(110, 255);
+			}
+			//Set the image dimensions and add it to the image array
+			imp_current_cropped.setDimensions(1, edge_length, 1);
+			organelle_image_array[prediction_index][index_in_image_array] = imp_current_cropped;
+		}
+    }
+}
+  
+public class MultithreadedImageReadingAndProcessing extends Thread {
+	//Class to create threads and run image processing on many threads
+	Thread[] threads = ThreadUtil.createThreadArray(organelle_array.length*2+2);//all organelles + 1 raw for each prediction, times 2 for two datasets
+	public void run (){
+		 ithread = 0;
+		 for (prediction = 0; prediction<2; prediction++){//loop over the predicitions
+			 for (organelle_index = 0; organelle_index<=organelle_array.length; organelle_index++){//loop over all the data needed for each composite
+			 		//Set up the actual process for each thread
+					Runnable runnable = new ReadAndProcessImageInThread(prediction, organelle_index);
+				   	threads[ithread] = new Thread(runnable);
+				   	ithread++;
+			 }
+		}
+		//Run the threads
+		ThreadUtil.startAndJoin(threads);
+	}
+}
+
+public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseListener {
+	//Class for this plugin
+
+	//Create dialog boxes
+	public void dataSelectDialogBox(){
+		//Dialog box to get source directory and output file for saving results
+		data_select_dialog_box.addDirectoryField("Prediction 1", "/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5",75);
+		data_select_dialog_box.addDirectoryField("Prediction 2", "/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5",75);
+		data_select_dialog_box.addDirectoryField("Raw Data","/groups/cosem/cosem/data/HeLa_Cell2_4x4x4nm/Aubrey_17-7_17_Cell2_4x4x4nm.n5",75);
+		data_select_dialog_box.addDirectoryField("Mask", "/groups/cosem/cosem/masks/HeLa_Cell2_mask_4x4x4nm.n5",75);
+		data_select_dialog_box.addFileField("Output File", "/groups/cosem/cosem/data/prediction_results.csv",75);
+		data_select_dialog_box.showDialog();
+		if (data_select_dialog_box.wasCanceled()) return;
+
+		//Get directories and create corresponding n5 readers
+		prediction1_directory = data_select_dialog_box.getNextString();
+		prediction2_directory = data_select_dialog_box.getNextString();
+		raw_directory = data_select_dialog_box.getNextString();
+		mask_directory = data_select_dialog_box.getNextString();
+		n5_prediction1 = new N5FSReader(prediction1_directory);
+		n5_prediction2 = new N5FSReader(prediction2_directory);
+		n5_raw = new N5FSReader(raw_directory);
+		n5_mask = new N5FSReader(mask_directory);
+		output_file = data_select_dialog_box.getNextString();
+
+		//Add directories to results table
+		results_table.addValue("Prediction 1 Directory", prediction1_directory);
+		results_table.addValue("Prediction 2 Directory", prediction2_directory);
+		results_table.addValue("Raw Data Directory", raw_directory);
+		results_table.addValue("Mask Directory", mask_directory);
+
+		//Get image dimensions
+		image_dimensions = n5_raw.getDatasetAttributes("/volumes/raw").getDimensions();
+	}
+
+	public void organelleSelectDialogBox(){
+		//Dialog box to select which organelles will be displayed
+
+		//Find the organelles common to each list and create an array with them (also add None option)
+		File[] predictionDirectories1 = new File(prediction1_directory).listFiles(directoryFilter);
+		File[] predictionDirectories2 = new File(prediction2_directory).listFiles(directoryFilter);
+		common_organelles_list = new ArrayList();
+		common_organelles_list.add("---None---"); 
+		for(i = 0; i<predictionDirectories1.length; i++){
+			currentOrganelle = predictionDirectories1[i].getName();
+			for(j=0; j<predictionDirectories2.length; j++){
+				if( predictionDirectories2[j].getName().equals(currentOrganelle)){
+					common_organelles_list.add(currentOrganelle);			
+					break;
+				}
+			}
+		}
+		
+		//Create dropdown menus for each color allowing to select any of the organelles
+		String[] common_organelles_array = new String[common_organelles_list.size()];
+		common_organelles_array = common_organelles_list.toArray(common_organelles_array);
+		colors = new String[]{"Red","Green","Blue","Cyan","Magenta","Yellow"};
+		for(i=0; i<colors.length; i++){
+			organelle_select_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[i+1]);
+		}
+
+		//Add box for choosing image size
+		organelle_select_dialog_box.addNumericField("Image Size (pixels)",150,0);
+		organelle_select_dialog_box.showDialog();
+
+		//Add organelle choices to results table and create string for display and for table
+		organelle_table_string = "";
+		if (organelle_select_dialog_box.wasOKed()){
+			organelle_choices = organelle_select_dialog_box.getChoices();
+			for(i=0; i<organelle_choices.size(); i++){
+				organelle_array[i] = organelle_choices.get(i).getSelectedItem();
+				if(!organelle_array[i].equals("---None---")){
+					selected_organelles_list.add(organelle_array[i]);
+					organelle_display_string += colors[i] + ": " + organelle_array[i] + "\n";
+					//organelle_radio_button_labels_list.add(colors[i] + " - " + organelle_array[i] +":");
+					organelle_table_string += organelle_array[i] +",";
+				}
+			}
+			organelle_display_string += "Gray: Raw Data";
+			organelle_table_string = organelle_table_string.substring(0,organelle_table_string.length()-1); 
+			results_table.addValue("Selected Organelles", organelle_table_string);
+			edge_length = (Integer)organelle_select_dialog_box.getNextNumber();
+			createMergedImages();
+			results_table.show("Prediction Results"); 
+		}
+	}
+	
+	FileFilter directoryFilter = new FileFilter() {
+			public boolean accept(File file) {
+				return file.isDirectory();
+			}
+	};
+
+	public int getIndexInOrganelleArray(selected_organelle){
+		index = -1;
+		for (i=0;i<organelle_array.length; i++) {
+    		if (organelle_array[i].equals(selected_organelle)) {
+        		index = i;
+        		break;
+    		}
+		}
+		return index;
+	}
+
+	public void addEvaluationToTable(evaluation_result){ 				
+		selected_organelle_choice = categorize_dialog_box.getChoices();
+		selected_organelle = selected_organelle_choice.get(0).getSelectedItem();
+		index_in_organelle_array = getIndexInOrganelleArray(selected_organelle);
+		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count[index_in_organelle_array], crop_coordinates);  
+		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count[index_in_organelle_array],evaluation_result);
+		organelle_crop_count[index_in_organelle_array]++;			
+		addEmptyEntriesToResultsTable(); 
+		results_table.show("Prediction Results"); 
+		results_table.saveAs(output_file); 
+		//results_table.incrementCounter(); 
+		createMergedImages(); 
+	}
+				
+	
+	public void categorizeDialogBox(){
+		//Dialog box to select which (if any) of the predictions was best
+		//layout = new GridLayout(2,3);
+		prediction1_button = new Button("Prediction 1");
+		prediction2_button = new Button("Prediction 2");
+		neither_button = new Button("Neither");
+
+		String[] selected_organelles_array = new String[selected_organelles_list.size()];
+		selected_organelles_array = selected_organelles_list.toArray(selected_organelles_array);
+		categorize_dialog_box.addChoice("Evaluating Organelle: ",selected_organelles_array, selected_organelles_array[0]);
+		categorize_dialog_box.addMessage(organelle_display_string);
+		//Add listeners to each button to update/save the results table and get the next images
+		prediction1_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 1");} }); 
+		prediction2_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 2");} });
+		neither_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Neither");} });
+		GridBagConstraints c = new GridBagConstraints();
+		c.gridy=2;
+		categorize_dialog_box.add(prediction1_button,c);
+		categorize_dialog_box.add(prediction2_button,c);
+		categorize_dialog_box.add(neither_button,c);
+		categorize_dialog_box.addMessage("");//neeed so Done button actually appears
+		categorize_dialog_box.setOKLabel("Done");
+		categorize_dialog_box.hideCancelButton();
+		categorize_dialog_box.showDialog();
+	}
+
+	public void getRandomCropCoordinates(){
+		startX = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[0]-(edge_length-1));
+		startY = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[1]-(edge_length-1));
+		startZ = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[2]-(edge_length-1));
+		start_coordinates[0]=startX; start_coordinates[1]=startY; start_coordinates[2]=startZ;
+		end_coordinates[0]= start_coordinates[0]+edge_length-1; end_coordinates[1]= start_coordinates[1]+edge_length-1; end_coordinates[2] = start_coordinates[2]+edge_length-1;
+	}
+
+	public boolean isCroppedRegionInMask(){
+		img_mask = N5Utils.open(n5_mask, "/volumes/raw"); //Mask is downscaled by 2
+		mask_start_coordinates = new long[]{Math.floor(start_coordinates[0]/2.0), Math.floor(start_coordinates[1]/2.0), Math.floor(start_coordinates[2]/2.0)};
+		mask_end_coordinates = new long[]{Math.floor(end_coordinates[0]/2.0), Math.floor(end_coordinates[1]/2.0), Math.floor(end_coordinates[2]/2.0)};
+		mask_cropped = Views.interval(img_mask, mask_start_coordinates, mask_end_coordinates);
+		ImagePlus imp_mask_cropped = ImageJFunctions.wrap(mask_cropped, "temp");
+		zprojector = new ij.plugin.ZProjector();
+		projection = zprojector.run(imp_mask_cropped,"avg");
+		analyzer = new ij.plugin.filter.Analyzer(projection, mean_results_table);
+		analyzer.measure();
+		means = mean_results_table.getColumn(1);
+		return means[means.length-1]>=255.0*0.2; //20% within cell
+	}
+	
+	public void getValidImageCoordinates(){
+		getRandomCropCoordinates();
+		while( !isCroppedRegionInMask() ){
+			getRandomCropCoordinates();
+		}
+	}
+	public void createMergedImages(){
+		//Function to actually create the merged images from a random starting coordinate. Categorize box is disabled until new images are loaded.
+		
+		categorize_dialog_box.disable();
+		//Get image coordinates
+		getValidImageCoordinates();
+		//Add new coordinates to results table
+		crop_coordinates = Arrays.toString(start_coordinates) + " - " + Arrays.toString(end_coordinates);
+		//Run multithreaded processing
+		multi = new MultithreadedImageReadingAndProcessing();
+		multi.run();
+
+		//Display composite images
+		for (i=0; i<2; i++){
+			if (composite_images[i] == null){
+				composite_images[i] = ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[i], false);
+				composite_images[i].show();
+			}
+			else{
+				composite_images[i].setImage(ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[i], false));			
+			}
+			composite_images[i].setTitle("Prediction " + Integer.toString(i+1));
+		}
+		categorize_dialog_box.enable();
+	}
+	
+
+	public void addEmptyEntriesToResultsTable(){
+		columns = results_table.getHeadings();
+		num_rows = results_table.size();
+		for(row = 0; row<num_rows; row++){
+			for(column = 0; column<columns.length; column++){
+				if(results_table.getValueAsDouble(column, row) == 0){
+					results_table.setValue(columns[column], row, "");
+				}
+			}
+		}
+	}
+	
+	public void closeWindows(){
+		for (i=0; i<2; i++){
+			composite_images[i].close();
+		}
+	}
+	
+	public void run(){
+		//Star the script
+		dataSelectDialogBox();
+		organelleSelectDialogBox();
+		IJ.run("Synchronize Windows", "");
+		IJ.run("Brightness/Contrast...");
+		categorizeDialogBox();
+		closeWindows();
+		
+	}
+ 
+}
+
+new COSEM_Predictions_Evaluation().run(); //Run the script
