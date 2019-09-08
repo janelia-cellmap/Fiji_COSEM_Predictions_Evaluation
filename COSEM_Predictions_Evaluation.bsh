@@ -2,6 +2,7 @@ import bdv.util.*;
 import ij.*;
 import ij.process.FloatProcessor;
 import ij.gui.*;
+import ij.Prefs;
 import java.util.concurrent.*;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -145,11 +146,12 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	//Create dialog boxes
 	public void dataSelectDialogBox(){
 		//Dialog box to get source directory and output file for saving results
-		data_select_dialog_box.addDirectoryField("Prediction 1", "/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5",75);
-		data_select_dialog_box.addDirectoryField("Prediction 2", "/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5",75);
-		data_select_dialog_box.addDirectoryField("Raw Data","/groups/cosem/cosem/data/HeLa_Cell2_4x4x4nm/Aubrey_17-7_17_Cell2_4x4x4nm.n5",75);
-		data_select_dialog_box.addDirectoryField("Mask", "/groups/cosem/cosem/masks/HeLa_Cell2_mask_4x4x4nm.n5",75);
-		data_select_dialog_box.addFileField("Output File", "/groups/cosem/cosem/data/prediction_results.csv",75);
+		data_select_dialog_box.addDirectoryField("Prediction 1", Prefs.get("COSEM_Predictions_Evaluation.prediction1_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5"),75);
+		data_select_dialog_box.addDirectoryField("Prediction 2", Prefs.get("COSEM_Predictions_Evaluation.prediction2_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5"),75);
+		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell2_4x4x4nm/Aubrey_17-7_17_Cell2_4x4x4nm.n5"),75);
+		data_select_dialog_box.addDirectoryField("Mask", Prefs.get("COSEM_Predictions_Evaluation.mask_directory","/groups/cosem/cosem/masks/HeLa_Cell2_mask_4x4x4nm.n5"),75);
+		data_select_dialog_box.addFileField("Output File", Prefs.get("COSEM_Predictions_Evaluation.output_file","/groups/cosem/cosem/data/prediction_results.csv"),75);
+
 		data_select_dialog_box.showDialog();
 		if (data_select_dialog_box.wasCanceled()) return;
 
@@ -170,6 +172,14 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		results_table.addValue("Raw Data Directory", raw_directory);
 		results_table.addValue("Mask Directory", mask_directory);
 
+		//Save to prefs
+		Prefs.set("COSEM_Predictions_Evaluation.prediction1_directory", prediction1_directory);
+		Prefs.set("COSEM_Predictions_Evaluation.prediction2_directory", prediction2_directory);
+		Prefs.set("COSEM_Predictions_Evaluation.raw_directory", raw_directory);
+		Prefs.set("COSEM_Predictions_Evaluation.mask_directory", mask_directory);
+		Prefs.set("COSEM_Predictions_Evaluation.output_file", output_file);
+		Prefs.savePreferences();
+		
 		//Get image dimensions
 		image_dimensions = n5_raw.getDatasetAttributes("/volumes/raw").getDimensions();
 	}
