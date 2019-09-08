@@ -46,6 +46,10 @@ data_select_dialog_box = new GenericDialogPlus("Select Data");
 organelle_select_dialog_box = new NonBlockingGenericDialog("Select Organelles");
 categorize_dialog_box = new NonBlockingGenericDialog("Prediction Comparison");
 selected_organelles_list = new ArrayList();
+organelle_checkbox_labels_list = new ArrayList();
+organelle_checkbox_to_channel_mapping_list = new ArrayList();
+active_channels_list = new ArrayList();
+organelle_color_checkboxes = "";
 
 //Variables
 prediction1_directory = "";
@@ -57,7 +61,6 @@ n5_prediction2 = new N5FSReader("");
 n5_raw = new N5FSReader("");
 n5_mask = new N5FSReader("");
 organelle_array = new String[6];
-organelle_display_string = "";
 start_coordinates = new long[]{-1, -1, -1};
 end_coordinates = new long[]{-1,-1,-1};
 image_dimensions = new long[]{0,0,0};
@@ -65,7 +68,7 @@ edge_length = 150;
 organelle_image_array = new ImagePlus[2][7];
 composite_images = new CompositeImage[2];
 organelle_crop_count = new int[]{0,0,0,0,0,0};
-	
+
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
  	
@@ -108,8 +111,8 @@ public class ReadAndProcessImageInThread implements Runnable {
 				contrastEnahncer = new ij.plugin.ContrastEnhancer();
 				contrastEnahncer.stretchHistogram(imp_current_cropped, 0.35);
 			}
-			else{//Otherwise, we set the default minimum to 110 since much below this the data is definitely outside of the organelle
-				imp_current_cropped.setDisplayRange(110, 255);
+			else{//Otherwise, we set the default to 127
+				imp_current_cropped.setDisplayRange(127, 127);
 			}
 			//Set the image dimensions and add it to the image array
 			imp_current_cropped.setDimensions(1, edge_length, 1);
@@ -203,18 +206,28 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 
 		//Add organelle choices to results table and create string for display and for table
 		organelle_table_string = "";
+		gray_color_index=-1;
 		if (organelle_select_dialog_box.wasOKed()){
 			organelle_choices = organelle_select_dialog_box.getChoices();
+			active_color_count=0;
 			for(i=0; i<organelle_choices.size(); i++){
 				organelle_array[i] = organelle_choices.get(i).getSelectedItem();
 				if(!organelle_array[i].equals("---None---")){
+					active_channels_list.add(1);//start with that channel on
 					selected_organelles_list.add(organelle_array[i]);
-					organelle_display_string += colors[i] + ": " + organelle_array[i] + "\n";
-					//organelle_radio_button_labels_list.add(colors[i] + " - " + organelle_array[i] +":");
+					organelle_checkbox_labels_list.add(colors[i] + ": " + organelle_array[i]);
 					organelle_table_string += organelle_array[i] +",";
+					organelle_checkbox_to_channel_mapping_list.add(active_color_count);
+					active_color_count++;
+				}
+				if(i==2){//Gray is channel 2 but comes as last checkbox
+					active_channels_list.add(1);
+					gray_color_index = active_color_count;
+					active_color_count++;
 				}
 			}
-			organelle_display_string += "Gray: Raw Data";
+			organelle_checkbox_to_channel_mapping_list.add(gray_color_index); //Gray will always be active by default
+			organelle_checkbox_labels_list.add("Gray: Raw Data");
 			organelle_table_string = organelle_table_string.substring(0,organelle_table_string.length()-1); 
 			results_table.addValue("Selected Organelles", organelle_table_string);
 			edge_length = (Integer)organelle_select_dialog_box.getNextNumber();
@@ -253,11 +266,25 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//results_table.incrementCounter(); 
 		createMergedImages(); 
 	}
-				
+
+	public void toggleChannel(){
+		for(checkbox_index=0; checkbox_index<organelle_color_checkboxes.size(); checkbox_index++){
+			channel_index = organelle_checkbox_to_channel_mapping_list.get(checkbox_index);
+			active_channels_list.set(channel_index, organelle_color_checkboxes.get(checkbox_index).getState());
+		}
+		
+		active_channels_string = "";
+		for (i=0; i<active_channels_list.size(); i++) {
+  			channel_state = active_channels_list.get(i) ? "1" : "0";
+  			active_channels_string+=channel_state;
+		}
+		for (i=0; i<2; i++){
+			composite_images[i].setActiveChannels(active_channels_string);
+		}
+	}
 	
 	public void categorizeDialogBox(){
 		//Dialog box to select which (if any) of the predictions was best
-		//layout = new GridLayout(2,3);
 		prediction1_button = new Button("Prediction 1");
 		prediction2_button = new Button("Prediction 2");
 		neither_button = new Button("Neither");
@@ -265,7 +292,19 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		String[] selected_organelles_array = new String[selected_organelles_list.size()];
 		selected_organelles_array = selected_organelles_list.toArray(selected_organelles_array);
 		categorize_dialog_box.addChoice("Evaluating Organelle: ",selected_organelles_array, selected_organelles_array[0]);
-		categorize_dialog_box.addMessage(organelle_display_string);
+
+		String[] organelle_checkbox_labels_array = new String[organelle_checkbox_labels_list.size()];
+		organelle_checkbox_labels_array = organelle_checkbox_labels_list.toArray(organelle_checkbox_labels_array);
+		for(i=0; i<organelle_checkbox_labels_array.length; i++){
+			categorize_dialog_box.addCheckbox(organelle_checkbox_labels_array[i],true);
+		}
+
+		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
+		for(i=0; i<organelle_color_checkboxes.size(); i++){
+			organelle_color_checkboxes.get(i).addItemListener(new ItemListener(){
+				public void itemStateChanged(ItemEvent e){toggleChannel();}});
+		}
+		
 		//Add listeners to each button to update/save the results table and get the next images
 		prediction1_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 1");} }); 
 		prediction2_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 2");} });
