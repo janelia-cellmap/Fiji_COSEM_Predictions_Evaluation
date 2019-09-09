@@ -75,6 +75,8 @@ composite_images = new CompositeImage[2];
 organelle_crop_count = new int[]{0,0,0,0,0,0};
 evaluation_result_counts = new double[]{0,0,0};
 active_channels_string = "";
+blind_image_array_assignments = new int[]{-1,-1};
+composite_image_suffix = new String[]{"A","B"};
 
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
@@ -268,8 +270,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	}
 
 	public void addEvaluationToTable(evaluation_result){
-		if(evaluation_result == "Prediction 1"){evaluation_result_counts[0]+=1;}
-		else if (evaluation_result == "Prediction 2"){evaluation_result_counts[1]+=1;}
+		actual_prediction_evaluation_result = evaluation_result;
+		if(evaluation_result == "Prediction A"){
+			actual_prediction_evaluation_result = "Prediction  " + String.valueOf(blind_image_array_assignments[0]+1);
+			evaluation_result_counts[blind_image_array_assignments[0]]+=1;
+		}
+		else if (evaluation_result == "Prediction B"){
+			actual_prediction_evaluation_result = "Prediction  " + String.valueOf(blind_image_array_assignments[1]+1);
+			evaluation_result_counts[blind_image_array_assignments[1]]+=1;
+		}
 		else{evaluation_result_counts[2]+=1;}
 		plot.add("separated bar",evaluation_result_counts);
 		limits = plot.getLimits();
@@ -285,7 +294,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		selected_organelle = selected_organelle_choice.get(0).getSelectedItem();
 		index_in_organelle_array = getIndexInOrganelleArray(selected_organelle);
 		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count[index_in_organelle_array], crop_coordinates);  
-		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count[index_in_organelle_array],evaluation_result);
+		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count[index_in_organelle_array],actual_prediction_evaluation_result);
 		
 		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
 		current_label = organelle_color_checkboxes.get(index_in_organelle_array).getLabel();
@@ -299,7 +308,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		results_table.show("Prediction Results"); 
 		results_table.saveAs(output_file); 
 		//results_table.incrementCounter(); 
-		createMergedImages(); 
+		createMergedImages();
 	}
 
 	public void toggleChannel(){
@@ -320,8 +329,8 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	
 	public void categorizeDialogBox(){
 		//Dialog box to select which (if any) of the predictions was best
-		prediction1_button = new Button("Prediction 1");
-		prediction2_button = new Button("Prediction 2");
+		prediction_A_button = new Button("Prediction A");
+		prediction_B_button = new Button("Prediction B");
 		neither_good_button = new Button("Neither - Good");
 		neither_bad_button = new Button("Neither - Bad");
 		
@@ -342,15 +351,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		}
 		
 		//Add listeners to each button to update/save the results table and get the next images
-		prediction1_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 1");} }); 
-		prediction2_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction 2");} });
+		prediction_A_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction A");} }); 
+		prediction_B_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Prediction B");} });
 		neither_good_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Neither - Good");} });
 		neither_bad_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Neither - Bad");} });
 		
 		GridBagConstraints c = new GridBagConstraints();
 		categorize_dialog_box.addMessage("\n");//neeed so Done button actually appears
-		categorize_dialog_box.add(prediction1_button);
-		categorize_dialog_box.add(prediction2_button);
+		categorize_dialog_box.add(prediction_A_button);
+		categorize_dialog_box.add(prediction_B_button);
 		categorize_dialog_box.add(neither_good_button);
 		categorize_dialog_box.add(neither_bad_button);
 		categorize_dialog_box.addMessage("\n ");//neeed so Done button actually appears
@@ -399,17 +408,22 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		multi = new MultithreadedImageReadingAndProcessing();
 		multi.run();
 
+		//Randomize Prediction A and B so that the user doesn't always know which side is which
+		blind_image_array_assignments[0] = ThreadLocalRandom.current().nextInt(2); //image corresponding to Prediction A
+		blind_image_array_assignments[1] = 1-blind_image_array_assignments[0]; //image corresponding to Prediction B
+		
 		//Display composite images
-		for (i=0; i<2; i++){
+		for (i=0; i<2; i++){//Looping over prediction A, then prediction B
+			current_image_array_index = blind_image_array_assignments[i];
 			if (composite_images[i] == null){
-				composite_images[i] = ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[i], false);
+				composite_images[i] = ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[current_image_array_index], false);
 				composite_images[i].show();
 			}
 			else{
-				composite_images[i].setImage(ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[i], false));
+				composite_images[i].setImage(ij.plugin.RGBStackMerge.mergeChannels(organelle_image_array[current_image_array_index], false));
 				composite_images[i].setActiveChannels(active_channels_string);			
 			}
-			composite_images[i].setTitle("Prediction " + Integer.toString(i+1));
+			composite_images[i].setTitle("Prediction " + composite_image_suffix[i]);
 		}
 		categorize_dialog_box.enable();
 	}
