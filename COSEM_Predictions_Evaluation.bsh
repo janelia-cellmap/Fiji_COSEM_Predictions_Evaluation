@@ -39,7 +39,6 @@ results_table =  new ij.measure.ResultsTable(1);
 results_table.addValue("Prediction 1 Directory", "");
 results_table.addValue("Prediction 2 Directory", "");
 results_table.addValue("Raw Data Directory", "");
-results_table.addValue("Mask Directory", "");
 results_table.addValue("Selected Organelles", "");
 final Plot plot = new Plot("Evaluation Summary","Best Category","Counts");
 plot.setColor("black","black");
@@ -65,8 +64,7 @@ output_file = "";
 crop_coordinates = "";
 n5_prediction1 = new N5FSReader("");
 n5_prediction2 = new N5FSReader("");
-n5_raw = new N5FSReader("");
-n5_mask = new N5FSReader("");
+n5_raw_and_mask = new N5FSReader("");
 organelle_array = new String[6];
 start_coordinates = new long[]{-1, -1, -1};
 end_coordinates = new long[]{-1,-1,-1};
@@ -101,7 +99,7 @@ public class ReadAndProcessImageInThread implements Runnable {
 		if(index_supplied == 0){//raw data
 			index_in_image_array=3;
 			current_organelle = "/volumes/raw";
-			n5_current=n5_raw;
+			n5_current=n5_raw_and_mask;
 		}
 		else{//Predictions
 			current_organelle = organelle_array[index_supplied-1];
@@ -154,10 +152,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	//Create dialog boxes
 	public void dataSelectDialogBox(){
 		//Dialog box to get source directory and output file for saving results
-		data_select_dialog_box.addDirectoryField("Prediction 1", Prefs.get("COSEM_Predictions_Evaluation.prediction1_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5"),75);
-		data_select_dialog_box.addDirectoryField("Prediction 2", Prefs.get("COSEM_Predictions_Evaluation.prediction2_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/cell2_375000_89_207.n5"),75);
-		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell2_4x4x4nm/Aubrey_17-7_17_Cell2_4x4x4nm.n5"),75);
-		data_select_dialog_box.addDirectoryField("Mask", Prefs.get("COSEM_Predictions_Evaluation.mask_directory","/groups/cosem/cosem/masks/HeLa_Cell2_mask_4x4x4nm.n5"),75);
+		data_select_dialog_box.addDirectoryField("Prediction 1", Prefs.get("COSEM_Predictions_Evaluation.prediction1_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/hela_cell3_314000.n5/"),75);
+		data_select_dialog_box.addDirectoryField("Prediction 2", Prefs.get("COSEM_Predictions_Evaluation.prediction2_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/hela_cell3_593000.n5/"),75);
+		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell3_4x4x4nm/HeLa_Cell3_4x4x4nm.n5/"),75);
 		data_select_dialog_box.addFileField("Output File", Prefs.get("COSEM_Predictions_Evaluation.output_file","/groups/cosem/cosem/data/prediction_results.csv"),75);
 
 		data_select_dialog_box.showDialog();
@@ -167,29 +164,25 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		prediction1_directory = data_select_dialog_box.getNextString();
 		prediction2_directory = data_select_dialog_box.getNextString();
 		raw_directory = data_select_dialog_box.getNextString();
-		mask_directory = data_select_dialog_box.getNextString();
 		n5_prediction1 = new N5FSReader(prediction1_directory);
 		n5_prediction2 = new N5FSReader(prediction2_directory);
-		n5_raw = new N5FSReader(raw_directory);
-		n5_mask = new N5FSReader(mask_directory);
+		n5_raw_and_mask = new N5FSReader(raw_directory);
 		output_file = data_select_dialog_box.getNextString();
 
 		//Add directories to results table
 		results_table.addValue("Prediction 1 Directory", prediction1_directory);
 		results_table.addValue("Prediction 2 Directory", prediction2_directory);
 		results_table.addValue("Raw Data Directory", raw_directory);
-		results_table.addValue("Mask Directory", mask_directory);
 
 		//Save to prefs
 		Prefs.set("COSEM_Predictions_Evaluation.prediction1_directory", prediction1_directory);
 		Prefs.set("COSEM_Predictions_Evaluation.prediction2_directory", prediction2_directory);
 		Prefs.set("COSEM_Predictions_Evaluation.raw_directory", raw_directory);
-		Prefs.set("COSEM_Predictions_Evaluation.mask_directory", mask_directory);
 		Prefs.set("COSEM_Predictions_Evaluation.output_file", output_file);
 		Prefs.savePreferences();
 		
 		//Get image dimensions
-		image_dimensions = n5_raw.getDatasetAttributes("/volumes/raw").getDimensions();
+		image_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
 	}
 
 	public void organelleSelectDialogBox(){
@@ -235,7 +228,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 					active_channels_string+="1";
 					active_channels_list.add(1);//start with that channel on
 					selected_organelles_list.add(organelle_array[i]);
-					organelle_checkbox_labels_list.add(colors[i] + ": " + organelle_array[i]);
+					organelle_checkbox_labels_list.add(colors[i] + ": " + organelle_array[i] + " (0)" );
 					organelle_table_string += organelle_array[i] +",";
 					organelle_checkbox_to_channel_mapping_list.add(active_color_count);
 					active_color_count++;
@@ -287,11 +280,20 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		new_limits = new double[]{limits[0],limits[1],limits[2],max_y+1};
 		plot.setLimits(new_limits);
 		plotWindow = plot.show();
+		
 		selected_organelle_choice = categorize_dialog_box.getChoices();
 		selected_organelle = selected_organelle_choice.get(0).getSelectedItem();
 		index_in_organelle_array = getIndexInOrganelleArray(selected_organelle);
 		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count[index_in_organelle_array], crop_coordinates);  
 		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count[index_in_organelle_array],evaluation_result);
+		
+		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
+		current_label = organelle_color_checkboxes.get(index_in_organelle_array).getLabel();
+		old_count = String.valueOf(organelle_crop_count[index_in_organelle_array]);
+		new_count = String.valueOf(organelle_crop_count[index_in_organelle_array]+1);
+		new_label = current_label.replace("(" + old_count + ")", "(" +  new_count + ")");
+		organelle_color_checkboxes.get(index_in_organelle_array).setLabel(new_label);
+		
 		organelle_crop_count[index_in_organelle_array]++;			
 		addEmptyEntriesToResultsTable(); 
 		results_table.show("Prediction Results"); 
@@ -346,12 +348,12 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		neither_bad_button.addActionListener(new ActionListener(){ actionPerformed(ActionEvent e) { addEvaluationToTable("Neither - Bad");} });
 		
 		GridBagConstraints c = new GridBagConstraints();
-		c.gridy=2;
-		categorize_dialog_box.add(prediction1_button,c);
-		categorize_dialog_box.add(prediction2_button,c);
-		categorize_dialog_box.add(neither_good_button,c);
-		categorize_dialog_box.add(neither_bad_button,c);
-		categorize_dialog_box.addMessage("");//neeed so Done button actually appears
+		categorize_dialog_box.addMessage("\n");//neeed so Done button actually appears
+		categorize_dialog_box.add(prediction1_button);
+		categorize_dialog_box.add(prediction2_button);
+		categorize_dialog_box.add(neither_good_button);
+		categorize_dialog_box.add(neither_bad_button);
+		categorize_dialog_box.addMessage("\n ");//neeed so Done button actually appears
 		categorize_dialog_box.setOKLabel("Done");
 		categorize_dialog_box.hideCancelButton();
 		categorize_dialog_box.showDialog();
@@ -366,7 +368,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	}
 
 	public boolean isCroppedRegionInMask(){
-		img_mask = N5Utils.open(n5_mask, "/volumes/raw"); //Mask is downscaled by 2
+		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/mask"); //Mask is downscaled by 2
 		mask_start_coordinates = new long[]{Math.floor(start_coordinates[0]/2.0), Math.floor(start_coordinates[1]/2.0), Math.floor(start_coordinates[2]/2.0)};
 		mask_end_coordinates = new long[]{Math.floor(end_coordinates[0]/2.0), Math.floor(end_coordinates[1]/2.0), Math.floor(end_coordinates[2]/2.0)};
 		mask_cropped = Views.interval(img_mask, mask_start_coordinates, mask_end_coordinates);
