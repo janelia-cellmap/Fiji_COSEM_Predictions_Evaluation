@@ -467,7 +467,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public boolean organelleIsInCroppedRegion(){
 		//Function to make sure at least 10 voxels of organelle are in at least one of the subvolumes 
 		cropped_region_contains_organelle = false;
-		if (numValidOrganelleVoxelsInCrop(n5_prediction_1)>=500 || numValidOrganelleVoxelsInCrop(n5_prediction_2)>=500){
+		if (numValidOrganelleVoxelsInCrop(n5_prediction_1)>=10 || numValidOrganelleVoxelsInCrop(n5_prediction_2)>=10){
 			cropped_region_contains_organelle = true;
 		}
 		return cropped_region_contains_organelle; //any voxels assigned to desired organelle
