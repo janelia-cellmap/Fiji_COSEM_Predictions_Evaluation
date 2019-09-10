@@ -44,7 +44,6 @@ plot.setXYLabels("{Prediction 1,Prediction 2,Neither}",null);
 plot.add("separated bar",new double[]{0,0,0});
 current_limits = plot.getLimits();
 plot.setLimits(new double[]{current_limits[0],current_limits[1],0,1});
-plot_window = plot.show();
 
 //Dialog boxes
 data_select_dialog_box = new GenericDialogPlus("Select Data");
@@ -233,7 +232,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			for(i=0; i<organelle_choices.size(); i++){
 				organelle_array[i] = organelle_choices.get(i).getSelectedItem();
 				if(!organelle_array[i].equals("---None---")){
-					active_channels_list.add(1);//start with that channel on
+					active_channels_list.add(true);//start with that channel on
 					selected_organelles_list.add(organelle_array[i]);
 					organelle_checkbox_labels_list.add(colors[i] + ": " + organelle_array[i] + " (0)" );
 					organelle_table_string += organelle_array[i] +",";
@@ -241,7 +240,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 					active_color_count++;
 				}
 				if(i==2){//Gray is channel 2 but comes as last checkbox
-					active_channels_list.add(1);
+					active_channels_list.add(true);
 					gray_color_index = active_color_count;
 					active_color_count++;
 				}
@@ -254,7 +253,8 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 
 			edge_length = (Integer)subvolume_setup_dialog_box.getNextNumber();
 			generateNewSubvolumes();
-			results_table.show("Prediction Results"); 
+			results_table.show("Prediction Results");
+			plot.show(); 
 		}
 	}
 	
