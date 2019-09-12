@@ -456,7 +456,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//Crop the mask which is downscaled by a factor of 2
 		mask_start_coordinates = new long[]{Math.floor(start_coordinates[0]/2.0), Math.floor(start_coordinates[1]/2.0), Math.floor(start_coordinates[2]/2.0)};
 		mask_end_coordinates = new long[]{Math.floor(end_coordinates[0]/2.0), Math.floor(end_coordinates[1]/2.0), Math.floor(end_coordinates[2]/2.0)};	
-		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/mask");
+		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
 		mask_cropped = Views.interval(img_mask, mask_start_coordinates, mask_end_coordinates);
 		
 		ImagePlus imp_mask_cropped = ImageJFunctions.wrap(mask_cropped, "temp");
