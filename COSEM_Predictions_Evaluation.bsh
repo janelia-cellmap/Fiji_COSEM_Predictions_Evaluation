@@ -215,7 +215,12 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		common_organelles_array = common_organelles_list.toArray(common_organelles_array);
 		colors = new String[]{"Red","Green","Blue","Cyan","Magenta","Yellow"};
 		for(i=0; i<colors.length; i++){
-			subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[i+1]);
+			if(i+1<common_organelles_array.length){
+				subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[i+1]);
+			}
+			else{
+				subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[0]);
+			}
 		}
 
 		//Add box for choosing image size
@@ -437,6 +442,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//Function to ensure image coordinates are in mask and have sufficient organelle content
 		getRandomCropCoordinates();
 		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+			print("croppedregioninmask "+croppedRegionIsInMask()+" organelle "+organelleIsInCroppedRegion());
 			getRandomCropCoordinates();
 		}
 	}
