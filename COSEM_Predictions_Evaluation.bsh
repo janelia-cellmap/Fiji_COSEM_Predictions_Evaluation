@@ -125,8 +125,8 @@ public class ReadAndProcessImageInThread implements Runnable {
 				contrastEnahncer = new ij.plugin.ContrastEnhancer();
 				contrastEnahncer.stretchHistogram(imp_current_cropped, 0.35);
 			}
-			else{//Otherwise, we set the default to 127
-				imp_current_cropped.setDisplayRange(127, 127);
+			else{//Otherwise, we set the default to 126
+				imp_current_cropped.setDisplayRange(126, 126);
 			}
 			//Set the image dimensions and add it to the image array
 			imp_current_cropped.setDimensions(1, edge_length, 1);
@@ -487,7 +487,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		
 		statistics = new ij.process.StackStatistics(imp_organelle_cropped,256,0,255);
 		histogram = statistics.getHistogram();
-		int num_valid_organelle_voxels = Arrays.stream(histogram, 127,255).sum();		
+		int num_valid_organelle_voxels = Arrays.stream(histogram, 126,255).sum();		
 		return num_valid_organelle_voxels;
 	}
 
