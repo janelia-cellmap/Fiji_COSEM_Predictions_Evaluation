@@ -442,7 +442,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//Function to ensure image coordinates are in mask and have sufficient organelle content
 		getRandomCropCoordinates();
 		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
-			print("croppedregioninmask "+croppedRegionIsInMask()+" organelle "+organelleIsInCroppedRegion());
 			getRandomCropCoordinates();
 		}
 	}
