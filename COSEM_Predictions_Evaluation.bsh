@@ -1,5 +1,4 @@
 import bdv.util.*;
-
 import ij.*;
 import ij.process.FloatProcessor;
 import ij.gui.*;
@@ -54,6 +53,8 @@ categorize_dialog_box = new NonBlockingGenericDialog("Prediction Comparison");
 prediction_1_directory = "";
 prediction_2_directory = "";
 output_file = "";
+training_crops_file = "";
+training_crops_info = new ArrayList();
 
 n5_prediction_1 = new N5FSReader("");
 n5_prediction_2 = new N5FSReader("");
@@ -62,6 +63,7 @@ n5_raw_and_mask = new N5FSReader("");
 start_coordinates = new long[]{-1,-1,-1};
 end_coordinates = new long[]{-1,-1,-1};
 crop_coordinates = "";
+use_training_crops_for_evaluation = false;
 
 organelle_checkbox_labels_list = new ArrayList();
 organelle_checkbox_to_channel_mapping_list = new ArrayList();
@@ -163,6 +165,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		data_select_dialog_box.addDirectoryField("Prediction 2", Prefs.get("COSEM_Predictions_Evaluation.prediction_2_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/hela_cell3_593000.n5/"),75);
 		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell3_4x4x4nm/HeLa_Cell3_4x4x4nm.n5/"),75);
 		data_select_dialog_box.addFileField("Output File", Prefs.get("COSEM_Predictions_Evaluation.output_file","/groups/cosem/cosem/data/prediction_results.csv"),75);
+		data_select_dialog_box.addFileField("Training Crops File (Optional)", Prefs.get("COSEM_Predictions_Evaluation.training_crops_file","/groups/cosem/cosem/ackermand/temp_hela_cell_2_crops.csv"),75);
 
 		data_select_dialog_box.showDialog();
 		if (data_select_dialog_box.wasCanceled()) return;
@@ -175,7 +178,31 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		n5_prediction_2 = new N5FSReader(prediction_2_directory);
 		n5_raw_and_mask = new N5FSReader(raw_directory);
 		output_file = data_select_dialog_box.getNextString();
+		training_crops_file = data_select_dialog_box.getNextString();
 
+		//Get info about training crops
+		if(!training_crops_file.equals("")){
+			use_training_crops_for_evaluation = true;
+			csvReader = new BufferedReader(new FileReader(training_crops_file));
+			crop_number = 0;
+			while ((row = csvReader.readLine()) != null) {
+    			String[] data = row.split(",");
+    			current_entry_in_array = new int[6];
+    			for(i=0; i<data.length; i++){
+    				try{
+    					current_entry_in_array[i] = Integer.parseInt(data[i]);
+    				}
+    				catch(err){
+    					current_entry_in_array[i] = Integer.parseInt(data[i].substring(1)); //for some reason, has trouble reading in first entry of csv
+    				}
+    			}
+    			training_crops_info.add(current_entry_in_array); 
+			}
+			csvReader.close();
+			Collections.shuffle(training_crops_info); //Randomize the order
+		}
+		
+		
 		//Add directories to results table
 		results_table.addValue("Prediction 1 Directory", prediction_1_directory);
 		results_table.addValue("Prediction 2 Directory", prediction_2_directory);
@@ -221,10 +248,13 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			else{
 				subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[0]);
 			}
+			
 		}
 
-		//Add box for choosing image size
-		subvolume_setup_dialog_box.addNumericField("Image Size (pixels)",150,0);
+		if(!use_training_crops_for_evaluation){//Then not using training crops
+			//Add box for choosing image size
+			subvolume_setup_dialog_box.addNumericField("Image Size (pixels)",150,0);
+		}
 		
 		subvolume_setup_dialog_box.showDialog();
 
@@ -256,7 +286,10 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			results_table.addValue("Selected Organelles", organelle_table_string);
 			selected_organelle = selected_organelles_list.get(0);
 
-			edge_length = (Integer)subvolume_setup_dialog_box.getNextNumber();
+			if(!use_training_crops_for_evaluation){
+				edge_length = (Integer)subvolume_setup_dialog_box.getNextNumber();
+			}
+		
 			generateNewSubvolumes();
 			results_table.show("Prediction Results");
 			plot.show(); 
@@ -440,12 +473,37 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 
 	public void getValidImageCoordinates(){
 		//Function to ensure image coordinates are in mask and have sufficient organelle content
-		getRandomCropCoordinates();
-		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+		if(use_training_crops_for_evaluation){
+			getTrainingCropCoordinates();
+			/*while(!organelleIsInCroppedRegion()){
+				getTrainingCropCoordinates();
+			}*/
+		}
+		else{
 			getRandomCropCoordinates();
+			while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+				getRandomCropCoordinates();
+			}
 		}
 	}
 
+	public void getTrainingCropCoordinates(){
+		if(training_crops_info.size>0){
+			print(training_crops_info.size);
+			current_crop_info = training_crops_info.get(0);
+			start_coordinates[0]=current_crop_info[3];
+			start_coordinates[1]=current_crop_info[4];
+			start_coordinates[2]=current_crop_info[5];
+			end_coordinates[0]=start_coordinates[0]+current_crop_info[0];
+			end_coordinates[1]=start_coordinates[1]+current_crop_info[1];
+			end_coordinates[2]=start_coordinates[2]+current_crop_info[2];
+			training_crops_info.remove(0);
+		}
+		else{
+			out_of_crops_dialog = new NonBlockingGenericDialog("No More Crops");
+			out_of_crops_dialog.addMessage("Ran out of crop regions to check");
+		}
+	}
 	public void getRandomCropCoordinates(){
 		//Function to get random coordinates
 		startX = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[0]-(edge_length-1));
