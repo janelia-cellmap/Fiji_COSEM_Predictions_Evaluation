@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.stream.*;
 import ij3d.*;
 
+import org.apache.commons.math3.distribution.NormalDistribution;
+
 import org.janelia.saalfeldlab.n5.*;
 import org.janeliai.saalfeldlab.n5.imglib2.*;
 import org.janelia.saalfeldlab.n5.imglib2.*;
@@ -22,13 +24,15 @@ import net.imglib2.img.imageplus.*;
 import net.imglib2.realtransform.*;
 import net.imglib2.util.*;
 import net.imglib2.view.*;
+import net.imglib2.Cursor;
+
 
 import java.awt.event.*;
 
 import fiji.util.gui.GenericDialogPlus;
 
 import java.io.*;
-import java.nio.file.*;; 
+import java.nio.file.*;
 
 //Results table
 results_table =  new ij.measure.ResultsTable(1);
@@ -49,6 +53,8 @@ plot.setLimits(new double[]{current_limits[0],current_limits[1],0,1});
 data_select_dialog_box = new GenericDialogPlus("Select Data");
 subvolume_setup_dialog_box = new NonBlockingGenericDialog("Subvolume Setup");
 categorize_dialog_box = new NonBlockingGenericDialog("Prediction Comparison");
+out_of_crops_dialog = new GenericDialogPlus("No More Crops");
+predictions_are_different_dialog = new GenericDialogPlus("Predictions Are Stat. Sig. Different!");
 
 //Variables
 prediction_1_directory = "";
@@ -61,6 +67,10 @@ n5_prediction_1 = new N5FSReader("");
 n5_prediction_2 = new N5FSReader("");
 n5_raw_and_mask = new N5FSReader("");
 
+start_coordinates_array = new ArrayList();
+end_coordinates_array = new ArrayList();
+thread_start_coordinates = new long[]{-1, -1, -1};
+thread_end_coordinates = new long[]{-1, -1, -1};
 start_coordinates = new long[]{-1,-1,-1};
 end_coordinates = new long[]{-1,-1,-1};
 crop_coordinates = "";
@@ -68,7 +78,7 @@ use_training_crops_for_evaluation = false;
 
 organelle_checkbox_labels_list = new ArrayList();
 organelle_checkbox_to_channel_mapping_list = new ArrayList();
-organelle_array = new String[6];
+evaluating_organelle = "";
 selected_organelles_list = new ArrayList();
 selected_organelle = "";
 
@@ -80,11 +90,15 @@ edge_length = 150;
 organelle_image_array = new ImagePlus[2][7];
 composite_images = new CompositeImage[2];
 
-organelle_crop_count = new int[]{0,0,0,0,0,0};
+organelle_crop_count = 0;
 evaluation_result_counts = new double[]{0,0,0};
 
 blind_image_array_assignments = new int[]{-1,-1};
 composite_image_suffix = new String[]{"A","B"};
+
+stop_coordinates_thread = false;
+
+probability_predictions_are_this_different_by_chance = 1;
 
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
@@ -112,39 +126,37 @@ public class ReadAndProcessImageInThread implements Runnable {
 			n5_current=n5_raw_and_mask;
 		}
 		else{//Predictions
-			current_organelle = organelle_array[index_supplied-1];
+			current_organelle = evaluating_organelle;
 			if(prediction_index==0){ n5_current=n5_prediction_1;}
 			else{n5_current=n5_prediction_2;}
 		}
 	}
 	
     public void run(){
-		if (!current_organelle.equals("---None---")){
-			//If an organelle is selected for this channel, read in the data, crop it and convert it to ImagePlus
-			img_current = N5Utils.open(n5_current, current_organelle);
-			img_current_cropped = Views.interval(img_current, start_coordinates, end_coordinates);
-			ImagePlus imp_current_cropped = ImageJFunctions.wrap(img_current_cropped, "temp");
-			if (index_in_image_array==3){//This is the raw data which we adjust differently
-				contrastEnahncer = new ij.plugin.ContrastEnhancer();
-				contrastEnahncer.stretchHistogram(imp_current_cropped, 0.35);
-			}
-			else{//Otherwise, we set the default to 126
-				imp_current_cropped.setDisplayRange(126, 126);
-			}
-			//Set the image dimensions and add it to the image array
-			imp_current_cropped.setDimensions(1, edge_length, 1);
-			organelle_image_array[prediction_index][index_in_image_array] = imp_current_cropped;
+		//If an organelle is selected for this channel, read in the data, crop it and convert it to ImagePlus
+		img_current = N5Utils.open(n5_current, current_organelle);
+		img_current_cropped = Views.interval(img_current, start_coordinates, end_coordinates);
+		ImagePlus imp_current_cropped = ImageJFunctions.wrap(img_current_cropped, "temp");
+		if (index_in_image_array==3){//This is the raw data which we adjust differently
+			contrastEnahncer = new ij.plugin.ContrastEnhancer();
+			contrastEnahncer.stretchHistogram(imp_current_cropped, 0.35);
 		}
+		else{//Otherwise, we set the default to 127: need to set display range to 126 for it to start display at 127
+			imp_current_cropped.setDisplayRange(126, 126);
+		}
+		//Set the image dimensions and add it to the image array
+		imp_current_cropped.setDimensions(1, edge_length, 1);
+		organelle_image_array[prediction_index][index_in_image_array] = imp_current_cropped;
     }
 }
-  
+ 
 public class MultithreadedImageReadingAndProcessing extends Thread {
 	//Class to create threads and run image processing on many threads
-	Thread[] threads = ThreadUtil.createThreadArray(organelle_array.length*2+2);//all organelles + 1 raw for each prediction, times 2 for two datasets
+	Thread[] threads = ThreadUtil.createThreadArray(2+2);//all organelles + 1 raw for each prediction, times 2 for two datasets
 	public void run (){
 		 ithread = 0;
 		 for (prediction = 0; prediction<2; prediction++){//loop over the predicitions
-			 for (organelle_index = 0; organelle_index<=organelle_array.length; organelle_index++){//loop over all the data needed for each composite
+			 for (organelle_index = 0; organelle_index<=1; organelle_index++){//loop over all the data needed for each composite; one for organelle of interest, one for predictions
 			 		//Set up the actual process for each thread
 					Runnable runnable = new ReadAndProcessImageInThread(prediction, organelle_index);
 				   	threads[ithread] = new Thread(runnable);
@@ -157,9 +169,10 @@ public class MultithreadedImageReadingAndProcessing extends Thread {
 }
 
 public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseListener {
+
 	//Class for this plugin
 
-	//Create dialog boxes
+		//Create dialog boxes
 	public void dataSelectDialogBox(){
 		//Dialog box to get source directory and output file for saving results
 		data_select_dialog_box.addDirectoryField("Prediction 1", Prefs.get("COSEM_Predictions_Evaluation.prediction_1_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/hela_cell3_314000.n5/"),75);
@@ -227,7 +240,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		File[] predictionDirectories1 = new File(prediction_1_directory).listFiles(directoryFilter);
 		File[] predictionDirectories2 = new File(prediction_2_directory).listFiles(directoryFilter);
 		common_organelles_list = new ArrayList();
-		common_organelles_list.add("---None---"); 
 		for(i = 0; i<predictionDirectories1.length; i++){
 			currentOrganelle = predictionDirectories1[i].getName();
 			for(j=0; j<predictionDirectories2.length; j++){
@@ -238,19 +250,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			}
 		}
 		
-		//Create dropdown menus for each color allowing to select any of the organelles
 		String[] common_organelles_array = new String[common_organelles_list.size()];
 		common_organelles_array = common_organelles_list.toArray(common_organelles_array);
-		colors = new String[]{"Red","Green","Blue","Cyan","Magenta","Yellow"};
-		for(i=0; i<colors.length; i++){
-			if(i+1<common_organelles_array.length){
-				subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[i+1]);
-			}
-			else{
-				subvolume_setup_dialog_box.addChoice(colors[i],common_organelles_array, common_organelles_array[0]);
-			}
-			
-		}
+		subvolume_setup_dialog_box.addChoice("Organelle To Evaluate: ",common_organelles_array, common_organelles_array[0]);
 
 		if(!use_training_crops_for_evaluation){//Then not using training crops
 			//Add box for choosing image size
@@ -261,36 +263,42 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 
 		//Add organelle choices to results table and create string for display and for table
 		organelle_table_string = "";
-		gray_color_index=-1;
 		if (subvolume_setup_dialog_box.wasOKed()){
 			organelle_choices = subvolume_setup_dialog_box.getChoices();
-			active_color_count=0;
-			for(i=0; i<organelle_choices.size(); i++){
-				organelle_array[i] = organelle_choices.get(i).getSelectedItem();
-				if(!organelle_array[i].equals("---None---")){
-					active_channels_list.add(true);//start with that channel on
-					selected_organelles_list.add(organelle_array[i]);
-					organelle_checkbox_labels_list.add(colors[i] + ": " + organelle_array[i] + " (0)" );
-					organelle_table_string += organelle_array[i] +",";
-					organelle_checkbox_to_channel_mapping_list.add(active_color_count);
-					active_color_count++;
-				}
-				if(i==2){//Gray is channel 2 but comes as last checkbox
-					active_channels_list.add(true);
-					gray_color_index = active_color_count;
-					active_color_count++;
-				}
-			}
-			organelle_checkbox_to_channel_mapping_list.add(gray_color_index); //Gray will always be active by default
+			evaluating_organelle = organelle_choices.get(0).getSelectedItem();
+			active_channels_list.add(true);//start with that channel on
+			selected_organelles_list.add(evaluating_organelle);
+			String str = "Red: " + evaluating_organelle + ", p same: %.4f";
+			organelle_checkbox_labels_list.add(String.format(str,new Object[]{new Float(1)}));
+				//" + evaluating_organelle + ", p same: "));
+			organelle_table_string += evaluating_organelle +",";
+			organelle_checkbox_to_channel_mapping_list.add(0);
+
+			organelle_checkbox_to_channel_mapping_list.add(1); //Gray will always be active by default
 			organelle_checkbox_labels_list.add("Gray: Raw Data");
 			organelle_table_string = organelle_table_string.substring(0,organelle_table_string.length()-1); 
 			results_table.addValue("Selected Organelles", organelle_table_string);
 			selected_organelle = selected_organelles_list.get(0);
+			active_channels_list.add(true);//start with that channel on
 
 			if(!use_training_crops_for_evaluation){
 				edge_length = (Integer)subvolume_setup_dialog_box.getNextNumber();
 			}
-		
+
+			//new Thread(test).start();
+			if(!use_training_crops_for_evaluation){
+
+				new Thread(new Runnable(){
+					public void run(){
+						while(!stop_coordinates_thread && start_coordinates_array.size()<=300){
+							getEvaluationCropCoordinates();
+						}
+					}
+				}).start();
+				
+				getValidImageCoordinates();
+			}
+
 			generateNewSubvolumes();
 			results_table.show("Prediction Results");
 			plot.show(); 
@@ -302,17 +310,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 				return file.isDirectory();
 			}
 	};
-
-	public int getIndexInOrganelleArray(selected_organelle){
-		index = -1;
-		for (i=0;i<organelle_array.length; i++) {
-    		if (organelle_array[i].equals(selected_organelle)) {
-        		index = i;
-        		break;
-    		}
-		}
-		return index;
-	}
 
 	public void addEvaluationToTableAndPlot(evaluation_result){
 		//Need to get actual prediction from blind randomization
@@ -326,6 +323,13 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			evaluation_result_counts[blind_image_array_assignments[1]]+=1;
 		}
 		else{evaluation_result_counts[2]+=1;}
+		total = evaluation_result_counts[0]+evaluation_result_counts[1];
+
+		// approximate with normal distribution: https://stats.stackexchange.com/questions/21581/how-to-assess-whether-a-coin-tossed-900-times-and-comes-up-heads-490-times-is-bi
+		mean = total*0.5;
+		std = Math.sqrt(total*0.5*0.5);
+		normalDistribution = new NormalDistribution(mean, std);
+		probability_predictions_are_this_different_by_chance = 2*normalDistribution.cumulativeProbability(Math.min(evaluation_result_counts[0], evaluation_result_counts[1]) + 0.5);//add 0.5 for "continuity correction". multiply by 2 becuase don't care which one is greater
 
 		//Update plot
 		plot.add("separated bar",evaluation_result_counts);
@@ -339,23 +343,29 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		plotWindow = plot.show();
 
 		//Update results table
-		index_in_organelle_array = getIndexInOrganelleArray(selected_organelle);
-		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count[index_in_organelle_array], crop_coordinates);  
-		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count[index_in_organelle_array],actual_prediction_evaluation_result);
+		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count, crop_coordinates);  
+		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count,actual_prediction_evaluation_result);
 
 		//Update selected organelle's checkbox label with count
 		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
-		current_label = organelle_color_checkboxes.get(index_in_organelle_array).getLabel();
-		old_count = String.valueOf(organelle_crop_count[index_in_organelle_array]);
-		new_count = String.valueOf(organelle_crop_count[index_in_organelle_array]+1);
-		new_label = current_label.replace("(" + old_count + ")", "(" +  new_count + ")");
-		organelle_color_checkboxes.get(index_in_organelle_array).setLabel(new_label);
-		organelle_crop_count[index_in_organelle_array]++;			
+		current_label = organelle_color_checkboxes.get(0).getLabel();
+		old_count = String.valueOf(organelle_crop_count);
+		new_count = String.valueOf(organelle_crop_count+1);
+		//new_label = current_label.replace("(" + old_count + ")", "(" +  new_count + ")");
+		String new_label = current_label.substring(0, current_label.length()-6) + "%.4f";
+		new_label = String.format(new_label, new Object[]{new Float(probability_predictions_are_this_different_by_chance)});
+		organelle_color_checkboxes.get(0).setLabel(new_label);
+		organelle_crop_count++;			
 
 		//Fill rest of table and save it
 		addEmptyEntriesToResultsTable(); 
 		results_table.show("Prediction Results"); 
 		results_table.saveAs(output_file); 
+
+		if(!use_training_crops_for_evaluation && probability_predictions_are_this_different_by_chance<0.01){
+			predictions_are_different_dialog.addMessage(String.format("The odds that Prediction 0 and Prediction 1 would be this different by chance is: %.4f\n", new Object[]{new Float(probability_predictions_are_this_different_by_chance)}));
+			predictions_are_different_dialog.showDialog();
+		}
 
 		//Get new subvolume
 		generateNewSubvolumes();
@@ -390,22 +400,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		neither_good_button = new Button("Neither - Good");
 		neither_bad_button = new Button("Neither - Bad");
 
-		//Create dropdown to select current organelle to score and generateNewSubvolume if newly selected organelle is not in crop
-		String[] selected_organelles_array = new String[selected_organelles_list.size()];
-		selected_organelles_array = selected_organelles_list.toArray(selected_organelles_array);
-		categorize_dialog_box.addChoice("Evaluating Organelle: ",selected_organelles_array, selected_organelles_array[0]);
-		selected_organelle_choice = categorize_dialog_box.getChoices();
-		selected_organelle_choice.get(0).addItemListener(
-			new ItemListener(){
-				public void itemStateChanged(ItemEvent e){
-					selected_organelle_previous = selected_organelle;
-					selected_organelle = selected_organelle_choice.get(0).getSelectedItem();
-					if ( !selected_organelle.equals(selected_organelle_previous) && !organelleIsInCroppedRegion() ){
-						generateNewSubvolumes();
-					}	
-				}
-			}
-		);
+		categorize_dialog_box.addMessage("Evaluating Organelle: "+evaluating_organelle);
 
 		//Add checkboxes for each organelle to turn it on/off and display evaluation counts
 		String[] organelle_checkbox_labels_array = new String[organelle_checkbox_labels_list.size()];
@@ -478,11 +473,28 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			getTrainingCropCoordinates();
 		}
 		else{
-			getRandomCropCoordinates();
-			while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
-				getRandomCropCoordinates();
+
+			while(start_coordinates_array.size() == 0 || end_coordinates_array.size() == 0){ //need to wait for thread to find coordinates
+				Thread.sleep(100);
 			}
+
+			start_coordinates = start_coordinates_array.get(0);
+			end_coordinates = end_coordinates_array.get(0);
+
+			start_coordinates_array.remove(0);
+			end_coordinates_array.remove(0);
 		}
+	}
+
+	public void getEvaluationCropCoordinates(){
+
+		getRandomCropCoordinates();
+		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+			getRandomCropCoordinates();
+		}
+
+		start_coordinates_array.add(thread_start_coordinates);
+		end_coordinates_array.add(thread_end_coordinates);
 	}
 
 	public void getTrainingCropCoordinates(){
@@ -494,34 +506,35 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			end_coordinates[0]=start_coordinates[0]+current_crop_info[3];
 			end_coordinates[1]=start_coordinates[1]+current_crop_info[4];
 			end_coordinates[2]=start_coordinates[2]+current_crop_info[5];
-			print(current_crop_info);
 			training_crops_info.remove(0);
 		}
 		else{
-			out_of_crops_dialog = new NonBlockingGenericDialog("No More Crops");
-			out_of_crops_dialog.addMessage("Ran out of crop regions to check");
+			out_of_crops_dialog.addMessage("Ran out of crop regions to check\n");
+			out_of_crops_dialog.showDialog();
 		}
 	}
+
 	public void getRandomCropCoordinates(){
 		//Function to get random coordinates
 		startX = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[0]-(edge_length-1));
 		startY = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[1]-(edge_length-1));
 		startZ = ThreadLocalRandom.current().nextInt((Integer)image_dimensions[2]-(edge_length-1));
-		start_coordinates[0]=startX; start_coordinates[1]=startY; start_coordinates[2]=startZ;
-		end_coordinates[0]= start_coordinates[0]+edge_length-1; end_coordinates[1]= start_coordinates[1]+edge_length-1; end_coordinates[2] = start_coordinates[2]+edge_length-1;
+
+		thread_start_coordinates=new long[] {startX, startY, startZ};
+		thread_end_coordinates=new long[] {thread_start_coordinates[0]+edge_length-1, thread_start_coordinates[1]+edge_length-1, thread_start_coordinates[2]+edge_length-1};
 	}
 	
 	public boolean croppedRegionIsInMask(){
 		//Function to check if at least 20% of cropped region is in cell mask
 
 		//Crop the mask which is downscaled by a factor of 2
-		mask_start_coordinates = new long[]{Math.floor(start_coordinates[0]/2.0), Math.floor(start_coordinates[1]/2.0), Math.floor(start_coordinates[2]/2.0)};
-		mask_end_coordinates = new long[]{Math.floor(end_coordinates[0]/2.0), Math.floor(end_coordinates[1]/2.0), Math.floor(end_coordinates[2]/2.0)};	
+		mask_start_coordinates = new long[]{Math.floor(thread_start_coordinates[0]/2.0), Math.floor(thread_start_coordinates[1]/2.0), Math.floor(thread_start_coordinates[2]/2.0)};
+		mask_end_coordinates = new long[]{Math.floor(thread_end_coordinates[0]/2.0), Math.floor(thread_end_coordinates[1]/2.0), Math.floor(thread_end_coordinates[2]/2.0)};	
 		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
 		mask_cropped = Views.interval(img_mask, mask_start_coordinates, mask_end_coordinates);
 		
 		ImagePlus imp_mask_cropped = ImageJFunctions.wrap(mask_cropped, "temp");
-		statistics = new ij.process.StackStatistics(imp_mask_cropped,256,0,255);	
+		statistics = new ij.process.StackStatistics(imp_mask_cropped,256,0,255);
 		return statistics.mean>=255.0*0.2; //20% within cell
 	}
 
@@ -537,12 +550,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public int numValidOrganelleVoxelsInCrop(n5){
 		//Function to count how many organelle voxels are in crop
 		organelle = N5Utils.open(n5, selected_organelle);
-		organelle_cropped = Views.interval(organelle, start_coordinates, end_coordinates);
-		ImagePlus imp_organelle_cropped = ImageJFunctions.wrap(organelle_cropped, "temp");
-		
+
+		organelle_cropped = Views.interval(organelle, thread_start_coordinates, thread_end_coordinates);
+		ImagePlus imp_organelle_cropped = ImageJFunctions.wrap(organelle_cropped, "temp");		
+
 		statistics = new ij.process.StackStatistics(imp_organelle_cropped,256,0,255);
 		histogram = statistics.getHistogram();
-		int num_valid_organelle_voxels = Arrays.stream(histogram, 126,255).sum();		
+		int num_valid_organelle_voxels = Arrays.stream(histogram, 127,256).sum(); //from is inclusive, to is exclusive so this will give us 127-255	
+
+			
 		return num_valid_organelle_voxels;
 	}
 
@@ -557,6 +573,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			}
 		}
 	}
+
 	
 	public void closeWindows(){
 		for (i=0; i<2; i++){
@@ -571,6 +588,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		IJ.run("Synchronize Windows", "");
 		IJ.run("Brightness/Contrast...");
 		categorizeDialogBox();
+		stop_coordinates_thread = true;
 		closeWindows();	
 	}
  
