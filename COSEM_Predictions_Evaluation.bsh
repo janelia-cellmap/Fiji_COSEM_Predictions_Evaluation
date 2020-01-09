@@ -93,6 +93,7 @@ composite_images = new CompositeImage[2];
 
 organelle_crop_count = 0;
 evaluation_result_counts = new double[]{0,0,0};
+evaluation_result_counts_for_stats = new double[]{0,0};
 
 blind_image_array_assignments = new int[]{-1,-1};
 composite_image_suffix = new String[]{"A","B"};
@@ -318,21 +319,29 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		if(evaluation_result == "Prediction A"){
 			actual_prediction_evaluation_result = "Prediction  " + String.valueOf(blind_image_array_assignments[0]+1);
 			evaluation_result_counts[blind_image_array_assignments[0]]+=1;
+			evaluation_result_counts_for_stats[blind_image_array_assignments[0]]+=1;
 		}
 		else if (evaluation_result == "Prediction B"){
 			actual_prediction_evaluation_result = "Prediction  " + String.valueOf(blind_image_array_assignments[1]+1);
 			evaluation_result_counts[blind_image_array_assignments[1]]+=1;
+			evaluation_result_counts_for_stats[blind_image_array_assignments[1]]+=1;
 		}
-		else{evaluation_result_counts[2]+=1;}
-		int number_of_samples = evaluation_result_counts[0]+evaluation_result_counts[1];
+		else{
+			evaluation_result_counts[2]+=1;
+			//if neither good nor bad, assign it randomly to a or b
+			evaluation_result_counts_for_stats[ThreadLocalRandom.current().nextInt(2)]+=1;
+		}
 
+		print(evaluation_result_counts_for_stats[0] + " " + evaluation_result_counts_for_stats[1]);
+		int number_of_samples = evaluation_result_counts_for_stats[0]+evaluation_result_counts_for_stats[1];
+		
 		// https://stats.stackexchange.com/questions/21581/how-to-assess-whether-a-coin-tossed-900-times-and-comes-up-heads-490-times-is-bi, https://en.wikipedia.org/wiki/Binomial_distribution#Cumulative_distribution_function
-		if(evaluation_result_counts[0]==evaluation_result_counts[1]){//otherwise, in else statement below, would double count the value
+		if(evaluation_result_counts_for_stats[0]==evaluation_result_counts_for_stats[1]){//otherwise, in else statement below, would double count the value
 			probability_predictions_are_this_different_by_chance = 1;
 		}
 		else{
 			binomialDistribution = new BinomialDistribution(number_of_samples,0.5);
-			probability_predictions_are_this_different_by_chance = 2*binomialDistribution.cumulativeProbability((int)Math.min(evaluation_result_counts[0], evaluation_result_counts[1])); //times 2 since need to account for either prediction having this value
+			probability_predictions_are_this_different_by_chance = 2*binomialDistribution.cumulativeProbability((int)Math.min(evaluation_result_counts_for_stats[0], evaluation_result_counts_for_stats[1])); //times 2 since need to account for either prediction having this value
 		}
 
 		//Update plot
