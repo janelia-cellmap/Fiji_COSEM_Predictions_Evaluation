@@ -14,6 +14,7 @@ import java.util.stream.*;
 import ij3d.*;
 
 import org.apache.commons.math3.distribution.NormalDistribution;
+import org.apache.commons.math3.distribution.BinomialDistribution;
 
 import org.janelia.saalfeldlab.n5.*;
 import org.janeliai.saalfeldlab.n5.imglib2.*;
@@ -54,7 +55,7 @@ data_select_dialog_box = new GenericDialogPlus("Select Data");
 subvolume_setup_dialog_box = new NonBlockingGenericDialog("Subvolume Setup");
 categorize_dialog_box = new NonBlockingGenericDialog("Prediction Comparison");
 out_of_crops_dialog = new GenericDialogPlus("No More Crops");
-predictions_are_different_dialog = new GenericDialogPlus("Predictions Are Stat. Sig. Different!");
+
 
 //Variables
 prediction_1_directory = "";
@@ -323,13 +324,16 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			evaluation_result_counts[blind_image_array_assignments[1]]+=1;
 		}
 		else{evaluation_result_counts[2]+=1;}
-		total = evaluation_result_counts[0]+evaluation_result_counts[1];
+		int number_of_samples = evaluation_result_counts[0]+evaluation_result_counts[1];
 
-		// approximate with normal distribution: https://stats.stackexchange.com/questions/21581/how-to-assess-whether-a-coin-tossed-900-times-and-comes-up-heads-490-times-is-bi
-		mean = total*0.5;
-		std = Math.sqrt(total*0.5*0.5);
-		normalDistribution = new NormalDistribution(mean, std);
-		probability_predictions_are_this_different_by_chance = 2*normalDistribution.cumulativeProbability(Math.min(evaluation_result_counts[0], evaluation_result_counts[1]) + 0.5);//add 0.5 for "continuity correction". multiply by 2 becuase don't care which one is greater
+		// https://stats.stackexchange.com/questions/21581/how-to-assess-whether-a-coin-tossed-900-times-and-comes-up-heads-490-times-is-bi, https://en.wikipedia.org/wiki/Binomial_distribution#Cumulative_distribution_function
+		if(evaluation_result_counts[0]==evaluation_result_counts[1]){//otherwise, in else statement below, would double count the value
+			probability_predictions_are_this_different_by_chance = 1;
+		}
+		else{
+			binomialDistribution = new BinomialDistribution(number_of_samples,0.5);
+			probability_predictions_are_this_different_by_chance = 2*binomialDistribution.cumulativeProbability((int)Math.min(evaluation_result_counts[0], evaluation_result_counts[1])); //times 2 since need to account for either prediction having this value
+		}
 
 		//Update plot
 		plot.add("separated bar",evaluation_result_counts);
@@ -363,6 +367,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		results_table.saveAs(output_file); 
 
 		if(!use_training_crops_for_evaluation && probability_predictions_are_this_different_by_chance<0.01){
+			predictions_are_different_dialog = new GenericDialogPlus("Predictions Are Stat. Sig. Different!");
 			predictions_are_different_dialog.addMessage(String.format("The odds that Prediction 0 and Prediction 1 would be this different by chance is: %.4f\n", new Object[]{new Float(probability_predictions_are_this_different_by_chance)}));
 			predictions_are_different_dialog.showDialog();
 		}
@@ -573,13 +578,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			}
 		}
 	}
-
-	
-	public void closeWindows(){
-		for (i=0; i<2; i++){
-			composite_images[i].close();
-		}
-	}
 	
 	public void run(){
 		//Star the script
@@ -589,7 +587,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		IJ.run("Brightness/Contrast...");
 		categorizeDialogBox();
 		stop_coordinates_thread = true;
-		closeWindows();	
+		WindowManager.closeAllWindows();
 	}
  
 }
