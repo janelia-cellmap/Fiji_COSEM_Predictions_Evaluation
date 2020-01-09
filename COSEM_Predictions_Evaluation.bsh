@@ -332,7 +332,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			evaluation_result_counts_for_stats[ThreadLocalRandom.current().nextInt(2)]+=1;
 		}
 
-		print(evaluation_result_counts_for_stats[0] + " " + evaluation_result_counts_for_stats[1]);
 		int number_of_samples = evaluation_result_counts_for_stats[0]+evaluation_result_counts_for_stats[1];
 		
 		// https://stats.stackexchange.com/questions/21581/how-to-assess-whether-a-coin-tossed-900-times-and-comes-up-heads-490-times-is-bi, https://en.wikipedia.org/wiki/Binomial_distribution#Cumulative_distribution_function
