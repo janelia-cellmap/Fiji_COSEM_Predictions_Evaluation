@@ -270,7 +270,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			evaluating_organelle = organelle_choices.get(0).getSelectedItem();
 			active_channels_list.add(true);//start with that channel on
 			selected_organelles_list.add(evaluating_organelle);
-			String str = "Red: " + evaluating_organelle + ", p same: %.4f";
+			String str = "Red: " + evaluating_organelle + " (n = 0, p-same = %.4f)";
 			organelle_checkbox_labels_list.add(String.format(str,new Object[]{new Float(1)}));
 				//" + evaluating_organelle + ", p same: "));
 			organelle_table_string += evaluating_organelle +",";
@@ -357,14 +357,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//Update results table
 		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count, crop_coordinates);  
 		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count,actual_prediction_evaluation_result);
+		results_table.setValue(selected_organelle+" Probability Predictions Are Same",organelle_crop_count,probability_predictions_are_this_different_by_chance);
 
 		//Update selected organelle's checkbox label with count
 		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
 		current_label = organelle_color_checkboxes.get(0).getLabel();
 		old_count = String.valueOf(organelle_crop_count);
 		new_count = String.valueOf(organelle_crop_count+1);
-		//new_label = current_label.replace("(" + old_count + ")", "(" +  new_count + ")");
-		String new_label = current_label.substring(0, current_label.length()-6) + "%.4f";
+		String new_label = current_label.replace("n = " + (number_of_samples-1), "n = " +  number_of_samples );
+		new_label = new_label.substring(0, new_label.length()-7) + "%.4f)";
 		new_label = String.format(new_label, new Object[]{new Float(probability_predictions_are_this_different_by_chance)});
 		organelle_color_checkboxes.get(0).setLabel(new_label);
 		organelle_crop_count++;			
@@ -374,9 +375,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		results_table.show("Prediction Results"); 
 		results_table.saveAs(output_file); 
 
-		if(!use_training_crops_for_evaluation && probability_predictions_are_this_different_by_chance<0.01){
-			predictions_are_different_dialog = new GenericDialogPlus("Predictions Are Stat. Sig. Different!");
-			predictions_are_different_dialog.addMessage(String.format("The odds that Prediction 0 and Prediction 1 would be this different by chance is: %.4f\n", new Object[]{new Float(probability_predictions_are_this_different_by_chance)}));
+		if(!use_training_crops_for_evaluation && number_of_samples==10){
+			predictions_are_different_dialog = new GenericDialogPlus("100 Comparisons Complete!");
+			predictions_are_different_dialog.addMessage(String.format("After 100 comparisons, the odds that Prediction 0 and Prediction 1 would be this different by chance is: %.4f\n", new Object[]{new Float(probability_predictions_are_this_different_by_chance)}));
 			predictions_are_different_dialog.showDialog();
 		}
 
