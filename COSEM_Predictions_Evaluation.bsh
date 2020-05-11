@@ -544,7 +544,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		startX = ThreadLocalRandom.current().nextInt((Integer)raw_dimensions[0]-(edge_length-1));
 		startY = ThreadLocalRandom.current().nextInt((Integer)raw_dimensions[1]-(edge_length-1));
 		startZ = ThreadLocalRandom.current().nextInt((Integer)raw_dimensions[2]-(edge_length-1));
-
+		
 		thread_start_coordinates=new long[] {startX, startY, startZ};
 		thread_end_coordinates=new long[] {thread_start_coordinates[0]+edge_length-1, thread_start_coordinates[1]+edge_length-1, thread_start_coordinates[2]+edge_length-1};
 	}
