@@ -129,7 +129,7 @@ public class ReadAndProcessImageInThread implements Runnable {
 		
 		if(index_supplied == 0){//raw data
 			index_in_image_array=3;
-			current_organelle = "/volumes/raw";
+			current_organelle = "/volumes/aligned";
 			n5_current=n5_raw_and_mask;
 		}
 		else{//Predictions
@@ -237,12 +237,12 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		Prefs.savePreferences();
 		
 		//Get image dimensions
-		raw_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
-		mask_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/masks/foreground").getDimensions();
+		raw_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/aligned").getDimensions();
+		//mask_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/masks/foreground").getDimensions();
 
 		//Other mask info
-		mask_scaling = Math.round(1.0*raw_dimensions[0]/mask_dimensions[0]);
-		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
+		//mask_scaling = Math.round(1.0*raw_dimensions[0]/mask_dimensions[0]);
+		//img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
 	}
 
 	public void subvolumeSetupDialogBox(){
@@ -513,7 +513,8 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public void getEvaluationCropCoordinates(){
 
 		getRandomCropCoordinates();
-		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+		//while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+		while( organelleIsInCroppedRegion()){
 			getRandomCropCoordinates();
 		}
 
