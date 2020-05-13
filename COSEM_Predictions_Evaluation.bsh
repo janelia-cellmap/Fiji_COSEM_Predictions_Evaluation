@@ -70,6 +70,9 @@ n5_prediction_2 = new N5FSReader("");
 n5_raw_and_mask = new N5FSReader("");
 img_mask = null;
 
+raw_or_aligned = "";
+mask_is_present = true;
+
 start_coordinates_array = new ArrayList();
 end_coordinates_array = new ArrayList();
 thread_start_coordinates = new long[]{-1, -1, -1};
@@ -106,7 +109,6 @@ stop_coordinates_thread = false;
 
 probability_predictions_are_this_different_by_chance = 1;
 
-
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
  	
@@ -129,7 +131,7 @@ public class ReadAndProcessImageInThread implements Runnable {
 		
 		if(index_supplied == 0){//raw data
 			index_in_image_array=3;
-			current_organelle = "/volumes/raw";
+			current_organelle = raw_or_aligned;
 			n5_current=n5_raw_and_mask;
 		}
 		else{//Predictions
@@ -237,12 +239,23 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		Prefs.savePreferences();
 		
 		//Get image dimensions
-		raw_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
-		mask_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/masks/foreground").getDimensions();
-
-		//Other mask info
-		mask_scaling = Math.round(1.0*raw_dimensions[0]/mask_dimensions[0]);
-		img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
+		try{
+			raw_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/aligned").getDimensions();
+			raw_or_aligned = "/volumes/aligned";
+		}catch(error){
+			raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
+			raw_or_aligned = "/volumes/raw";
+		}
+		
+		try{
+			mask_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/masks/foreground").getDimensions();
+			//Other mask info
+			mask_scaling = Math.round(1.0*raw_dimensions[0]/mask_dimensions[0]);
+			img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
+		}catch(error){
+			print("No mask found. Proceeding without mask.");
+			mask_is_present = false;
+		}
 	}
 
 	public void subvolumeSetupDialogBox(){
@@ -513,9 +526,16 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public void getEvaluationCropCoordinates(){
 
 		getRandomCropCoordinates();
-		while( !(croppedRegionIsInMask() && organelleIsInCroppedRegion())){
-			getRandomCropCoordinates();
+		if(mask_is_present){
+			while( !( croppedRegionIsInMask() && organelleIsInCroppedRegion())){
+				getRandomCropCoordinates();
+			}
+		}else{
+			while( !organelleIsInCroppedRegion()){
+				getRandomCropCoordinates();
+			}
 		}
+		
 
 		start_coordinates_array.add(thread_start_coordinates);
 		end_coordinates_array.add(thread_end_coordinates);
