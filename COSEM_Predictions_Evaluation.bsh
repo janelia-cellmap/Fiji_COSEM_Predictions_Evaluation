@@ -115,6 +115,13 @@ stop_coordinates_thread = false;
 
 probability_predictions_are_this_different_by_chance = 1;
 
+
+//Class for this plugin
+Random thread_A_fixed_seed_generator = new Random(0); //Thread 0 fixed seed random generator
+Random thread_B_fixed_seed_generator = new Random(1); //Thread 1 fixed seed random generator
+Random currentThreadFixedSeedGenerator = null;
+use_fixed_random_seed = false;
+
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
  	
@@ -237,10 +244,8 @@ public class MultithreadedImageReadingAndProcessing extends Thread {
 }
 
 public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseListener {
-
-	//Class for this plugin
-
-		//Create dialog boxes
+	
+	//Create dialog boxes
 	public void dataSelectDialogBox(){
 		//Dialog box to get source directory and output file for saving results
 		data_select_dialog_box.addDirectoryField("Prediction 1", Prefs.get("COSEM_Predictions_Evaluation.prediction_1_directory","/nrs/saalfeld/heinrichl/cell/gt061719/unet/02-070219/hela_cell3_314000.n5/"),75);
@@ -248,6 +253,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell3_4x4x4nm/HeLa_Cell3_4x4x4nm.n5/"),75);
 		data_select_dialog_box.addFileField("Output File", Prefs.get("COSEM_Predictions_Evaluation.output_file","/groups/cosem/cosem/data/prediction_results.csv"),75);
 		data_select_dialog_box.addCheckbox("Evaluate Training Crops",false);
+		data_select_dialog_box.addCheckbox("Use Fixed Random Seed",false);
 
 		data_select_dialog_box.showDialog();
 		if (data_select_dialog_box.wasCanceled()) return;
@@ -261,6 +267,8 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		n5_raw_and_mask = new N5FSReader(raw_directory);
 		output_file = data_select_dialog_box.getNextString();
 		use_training_crops_for_evaluation = data_select_dialog_box.getCheckboxes().get(0).getState();
+		use_fixed_random_seed = data_select_dialog_box.getCheckboxes().get(1).getState();
+		if(use_fixed_random_seed) print("Using fixed random seed");
 		
 		//Get info about training crops
 		if(use_training_crops_for_evaluation){
@@ -399,6 +407,8 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	};
 
 	public void addEvaluationToTableAndPlot(evaluation_result){
+		randomness_generator = use_fixed_random_seed ? thread_A_fixed_seed_generator : ThreadLocalRandom.current();
+		
 		//Need to get actual prediction from blind randomization
 		actual_prediction_evaluation_result = evaluation_result;
 		if(evaluation_result == "Prediction A"){
@@ -414,7 +424,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		else{
 			evaluation_result_counts[2]+=1;
 			//if neither good nor bad, assign it randomly to a or b
-			evaluation_result_counts_for_stats[ThreadLocalRandom.current().nextInt(2)]+=1;
+			evaluation_result_counts_for_stats[randomness_generator.nextInt(2)]+=1;
 		}
 
 		int number_of_samples = evaluation_result_counts_for_stats[0]+evaluation_result_counts_for_stats[1];
@@ -544,9 +554,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		//Run multithreaded processing
 		multi = new MultithreadedImageReadingAndProcessing();
 		multi.run();
-
 		//Randomize Prediction A and B so that the user doesn't always know which side is which
-		blind_image_array_assignments[0] = ThreadLocalRandom.current().nextInt(2); //image corresponding to Prediction A
+		randomness_generator = use_fixed_random_seed ? thread_A_fixed_seed_generator : ThreadLocalRandom.current();
+		blind_image_array_assignments[0] = randomness_generator.nextInt(2);//image corresponding to Prediction A
 		blind_image_array_assignments[1] = 1-blind_image_array_assignments[0]; //image corresponding to Prediction B
 		
 		//Display composite images
@@ -622,10 +632,11 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	}
 
 	public void getRandomCropCoordinates(){
+		randomness_generator = use_fixed_random_seed ? thread_B_fixed_seed_generator : ThreadLocalRandom.current();
 		//Function to get random coordinates
-		startX = ThreadLocalRandom.current().nextInt((Integer)prediction_dimensions[0]-(edge_length-1));
-		startY = ThreadLocalRandom.current().nextInt((Integer)prediction_dimensions[1]-(edge_length-1));
-		startZ = ThreadLocalRandom.current().nextInt((Integer)prediction_dimensions[2]-(edge_length-1));
+		startX = randomness_generator.nextInt((Integer)prediction_dimensions[0]-(edge_length-1));
+		startY = randomness_generator.nextInt((Integer)prediction_dimensions[1]-(edge_length-1));
+		startZ = randomness_generator.nextInt((Integer)prediction_dimensions[2]-(edge_length-1));
 
 		thread_start_coordinates=new long[] {startX, startY, startZ};
 		thread_end_coordinates=new long[] {thread_start_coordinates[0]+edge_length-1, thread_start_coordinates[1]+edge_length-1, thread_start_coordinates[2]+edge_length-1};
