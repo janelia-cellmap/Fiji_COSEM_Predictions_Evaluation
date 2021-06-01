@@ -86,8 +86,8 @@ use_training_crops_for_evaluation = false;
 organelle_checkbox_labels_list = new ArrayList();
 organelle_checkbox_to_channel_mapping_list = new ArrayList();
 evaluating_organelle = "";
-selected_organelles_list = new ArrayList();
-selected_organelle = "";
+evaluating_organelle_with_scale_1 = "";
+evaluating_organelle_with_scale_2 = "";
 
 active_channels_list = new ArrayList();
 organelle_color_checkboxes = "";
@@ -148,9 +148,9 @@ public class ReadAndProcessImageInThread implements Runnable {
 			n5_current=n5_raw_and_mask;
 		}
 		else{//Predictions
-			current_organelle = evaluating_organelle;
-			if(prediction_index==0){ n5_current=n5_prediction_1;}
-			else{n5_current=n5_prediction_2;}
+			current_organelle = ""; 
+			if(prediction_index==0){ n5_current=n5_prediction_1; current_organelle = evaluating_organelle_with_scale_1;}
+			else{n5_current=n5_prediction_2; current_organelle = evaluating_organelle_with_scale_2;}
 		}
 	}
 	
@@ -313,7 +313,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			if (new File(raw_directory+"/volumes/raw/s0").exists()){
 				raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/volumes/raw/s0").getDimensions();
 				raw_or_aligned = "/volumes/raw/s0";
-				print("Using s0");
+				print("Using s0 for "+raw_directory+"/volumes/raw.");
 			}
 			else{
 				raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
@@ -364,8 +364,24 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		if (subvolume_setup_dialog_box.wasOKed()){
 			organelle_choices = subvolume_setup_dialog_box.getChoices();
 			evaluating_organelle = organelle_choices.get(0).getSelectedItem();
+			
+			if (new File(prediction_1_directory+"/"+evaluating_organelle + "/s0").exists()){
+				evaluating_organelle_with_scale_1 = evaluating_organelle + "/s0";
+				print("Using s0 for "+prediction_1_directory+"/"+evaluating_organelle+".");
+			}
+			else{
+				evaluating_organelle_with_scale_1 = evaluating_organelle;
+			}
+			
+			if (new File(prediction_2_directory+"/"+evaluating_organelle + "/s0").exists()){
+				evaluating_organelle_with_scale_2 = evaluating_organelle + "/s0";
+				print("Using s0 for "+prediction_2_directory+"/"+evaluating_organelle+".");
+			}
+			else{
+				evaluating_organelle_with_scale_2 = evaluating_organelle;
+			}
+			
 			active_channels_list.add(true);//start with that channel on
-			selected_organelles_list.add(evaluating_organelle);
 			String str = "Red: " + evaluating_organelle + " (n = 0, p-same = %.9f)   ";
 			organelle_checkbox_labels_list.add(String.format(str,new Object[]{new Float(1)}));
 			
@@ -376,10 +392,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			organelle_checkbox_labels_list.add("Gray: Raw Data");
 			organelle_table_string = organelle_table_string.substring(0,organelle_table_string.length()-1); 
 			results_table.addValue("Selected Organelles", organelle_table_string);
-			selected_organelle = selected_organelles_list.get(0);
 			active_channels_list.add(true);//start with that channel on
 
-			prediction_dimensions = n5_prediction_1.getDatasetAttributes(selected_organelle).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
+			prediction_dimensions = n5_prediction_1.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
 			raw_scaling = Math.round(1.0*prediction_dimensions[0]/raw_dimensions[0]);
 			mask_scaling = Math.round(1.0*prediction_dimensions[0]/mask_dimensions[0]);
 
@@ -457,9 +472,9 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		plotWindow = plot.show();
 
 		//Update results table
-		results_table.setValue(selected_organelle+" Crop Coordinates",organelle_crop_count, crop_coordinates);  
-		results_table.setValue(selected_organelle+" Prediction Evaluation",organelle_crop_count,actual_prediction_evaluation_result);
-		results_table.setValue(selected_organelle+" Probability Predictions Are Same",organelle_crop_count,probability_predictions_are_this_different_by_chance);
+		results_table.setValue(evaluating_organelle+" Crop Coordinates",organelle_crop_count, crop_coordinates);  
+		results_table.setValue(evaluating_organelle+" Prediction Evaluation",organelle_crop_count,actual_prediction_evaluation_result);
+		results_table.setValue(evaluating_organelle+" Probability Predictions Are Same",organelle_crop_count,probability_predictions_are_this_different_by_chance);
 
 		//Update selected organelle's checkbox label with count
 		organelle_color_checkboxes = categorize_dialog_box.getCheckboxes();
@@ -665,15 +680,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public boolean organelleIsInCroppedRegion(){
 		//Function to make sure at least 10 voxels of organelle are in at least one of the subvolumes 
 		cropped_region_contains_organelle = false;
-		if (numValidOrganelleVoxelsInCrop(n5_prediction_1)>=500 || numValidOrganelleVoxelsInCrop(n5_prediction_2)>=500){
+		if (numValidOrganelleVoxelsInCrop(n5_prediction_1, evaluating_organelle_with_scale_1)>=500 || numValidOrganelleVoxelsInCrop(n5_prediction_2, evaluating_organelle_with_scale_2)>=500){
 			cropped_region_contains_organelle = true;
 		}
 		return cropped_region_contains_organelle; //any voxels assigned to desired organelle
 	}
 
-	public int numValidOrganelleVoxelsInCrop(n5){
+	public int numValidOrganelleVoxelsInCrop(n5, evaluating_organelle_with_scale){
 		//Function to count how many organelle voxels are in crop
-		organelle = N5Utils.open(n5, selected_organelle);
+		organelle = N5Utils.open(n5, evaluating_organelle_with_scale);
 
 		organelle_cropped = Views.interval(organelle, thread_start_coordinates, thread_end_coordinates);
 		ImagePlus imp_organelle_cropped = ImageJFunctions.wrap(organelle_cropped, "temp");		
