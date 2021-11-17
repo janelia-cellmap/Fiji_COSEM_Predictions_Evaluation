@@ -93,8 +93,16 @@ active_channels_list = new ArrayList();
 organelle_color_checkboxes = "";
 
 raw_dimensions = new long[]{0,0,0};
+raw_resolution = 0.0;
+prediction_offset = new long []{0,0,0};
 prediction_dimensions = new long[]{0,0,0};
+prediction_1_dimensions = new long[]{0,0,0};
+prediction_1_offset = new long[]{0,0,0};
+prediction_2_dimensions = new long[]{0,0,0};
+prediction_2_offset = new long[]{0,0,0};
+prediction_resolution = 0.0;
 mask_dimensions = new long[]{0,0,0};
+mask_resolution = 0.0;
 
 //scalings are with respect to prediction scaling which should be fixed
 mask_scaling = 2.0;
@@ -161,8 +169,8 @@ public class ReadAndProcessImageInThread implements Runnable {
 		ImagePlus imp_current_cropped  = null; 
 		if (index_in_image_array==3){//This is the raw data which we adjust differently
 			//might need to rescale raw data if it is at a lower resolution
-			raw_start_coordinates = new long[]{Math.floor(start_coordinates[0]/raw_scaling), Math.floor(start_coordinates[1]/raw_scaling), Math.floor(start_coordinates[2]/raw_scaling)};
-			raw_end_coordinates = new long[]{Math.floor(end_coordinates[0]/raw_scaling), Math.floor(end_coordinates[1]/raw_scaling), Math.floor(end_coordinates[2]/raw_scaling)};	
+			raw_start_coordinates = new long[]{Math.floor((start_coordinates[0]+prediction_offset[0])/raw_scaling), Math.floor((start_coordinates[1]+prediction_offset[1])/raw_scaling), Math.floor((start_coordinates[2]+prediction_offset[2])/raw_scaling)};
+			raw_end_coordinates = new long[]{Math.floor((end_coordinates[0]+prediction_offset[0])/raw_scaling), Math.floor((end_coordinates[1]+prediction_offset[1])/raw_scaling), Math.floor((end_coordinates[2]+prediction_offset[2])/raw_scaling)};	
 				
 			img_current_cropped = Views.interval(img_current, raw_start_coordinates, raw_end_coordinates);				
 			imp_current_cropped = ImageJFunctions.wrap(img_current_cropped, "temp");
@@ -244,6 +252,30 @@ public class MultithreadedImageReadingAndProcessing extends Thread {
 }
 
 public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseListener {
+	public float getResolution(String path){
+		String attributes =  new String(Files.readAllBytes(Paths.get(path+"/attributes.json", new String[0]))); 
+		attributes = attributes.replaceAll("\\s+","");
+        split_at = "resolution\":\\[";
+        if(attributes.contains("pixelResolution")){
+	   	    split_at = "\"pixelResolution\":\\{\"dimensions\":\\[";
+	   	}
+	   	resolution_string = attributes.split(split_at)[1].split("\\]")[0].split(",");
+	   	
+	   	resolution = new float[]{Float.parseFloat(resolution_string[0]), Float.parseFloat(resolution_string[1]), Float.parseFloat(resolution_string[2])};
+	   	return resolution[0]; //Assume symmetric resolution
+	}
+
+	public long[] getOffset(String path, float resolution){
+		String attributes =  new String(Files.readAllBytes(Paths.get(path+"/attributes.json", new String[0]))); 
+		attributes = attributes.replaceAll("\\s+","");
+		offset = new long[]{0,0,0};
+		if(attributes.contains("offset")){
+        	split_at = "offset\":\\[";
+        	offset_string = attributes.split(split_at)[1].split("\\]")[0].split(",");
+        	offset = new long[]{Long.parseLong(offset_string[0])/resolution, Long.parseLong(offset_string[1])/resolution, Long.parseLong(offset_string[2])/resolution};
+		}
+		return offset;
+	}
 	
 	//Create dialog boxes
 	public void dataSelectDialogBox(){
@@ -279,13 +311,13 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 				
 	    			String data =  new String(Files.readAllBytes(Paths.get(training_crop_directories[crop_index].getAbsolutePath()+"/labels/all/attributes.json", new String[0]))); 
 	    			
-					offsets_string = data.split("\"offset\": \\[")[1].split("]")[0].replaceAll("\\s","").split(",");
-					offsets = new int[]{Float.parseFloat(offsets_string[0])/4, Float.parseFloat(offsets_string[1])/4, Float.parseFloat(offsets_string[2])/4};
+					offset_string = data.split("\"offset\": \\[")[1].split("]")[0].replaceAll("\\s","").split(",");
+					offset = new int[]{Float.parseFloat(offset_string[0])/4, Float.parseFloat(offset_string[1])/4, Float.parseFloat(offset_string[2])/4};
 	
 					dimensions_string = data.split("\"dimensions\": \\[")[1].split("]")[0].replaceAll("\\s","").split(",");
 					dimensions = new int[]{Integer.parseInt(dimensions_string[0])/2, Integer.parseInt(dimensions_string[1])/2, Integer.parseInt(dimensions_string[2])/2};
 	    			
-	    			training_crops_info.add(new int[]{offsets[0], offsets[1], offsets[2], dimensions[0], dimensions[1], dimensions[2]}); 
+	    			training_crops_info.add(new int[]{offset[0], offset[1], offset[2], dimensions[0], dimensions[1], dimensions[2]}); 
 	    			
 				}
 			}
@@ -320,17 +352,20 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 				raw_or_aligned = "/volumes/raw";
 			}
 		}
+		raw_resolution = getResolution(raw_directory+raw_or_aligned);
 		
 		try{
 			mask_dimensions = n5_raw_and_mask.getDatasetAttributes("/volumes/masks/foreground").getDimensions();
 			//Other mask info
 			img_mask = N5Utils.open(n5_raw_and_mask, "/volumes/masks/foreground");
+			mask_resolution = getResolution(raw_directory+"/volumes/masks/foreground");
 		}catch(error){
 			print("No mask found. Proceeding without mask.");
 			mask_is_present = false;
 		}
-	}
 
+	}
+	
 	public void subvolumeSetupDialogBox(){
 		//Dialog box to select which organelles will be displayed
 
@@ -394,10 +429,20 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			results_table.addValue("Selected Organelles", organelle_table_string);
 			active_channels_list.add(true);//start with that channel on
 
-			prediction_dimensions = n5_prediction_1.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
-			raw_scaling = Math.round(1.0*prediction_dimensions[0]/raw_dimensions[0]);
-			mask_scaling = Math.round(1.0*prediction_dimensions[0]/mask_dimensions[0]);
+			prediction_resolution = getResolution(prediction_1_directory+"/"+evaluating_organelle_with_scale_1);
+			prediction_1_dimensions = n5_prediction_1.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
+			prediction_1_offset = getOffset(prediction_1_directory+"/"+evaluating_organelle_with_scale_1, prediction_resolution); //get offset in voxels
+			prediction_2_dimensions = n5_prediction_2.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
+			prediction_2_offset = getOffset(prediction_2_directory+"/"+evaluating_organelle_with_scale_2, prediction_resolution); //get offset in voxels
 
+			// TODO: NOW ASSUMES PREDICTIONS HAVE THE SAME OFFSETS/DIMENSIONS!
+			prediction_offset = new long[]{Math.max(prediction_1_offset[0], prediction_2_offset[0]), Math.max(prediction_1_offset[1], prediction_2_offset[1]), Math.max(prediction_1_offset[2], prediction_2_offset[2])};
+			prediction_extent = new long[]{Math.min(prediction_1_dimensions[0], prediction_2_dimensions[0]), Math.min(prediction_1_dimensions[1], prediction_2_dimensions[1]), Math.min(prediction_1_dimensions[2], prediction_2_dimensions[2])};
+			prediction_dimensions = new long[]{prediction_extent[0]-prediction_offset[0],prediction_extent[1]-prediction_offset[1],prediction_extent[2]-prediction_offset[2]};
+			
+			raw_scaling = Math.round(1.0*raw_resolution/prediction_resolution);
+			mask_scaling = Math.round(1.0*mask_resolution/prediction_resolution);
+			
 			if(!use_training_crops_for_evaluation){
 				edge_length = (Integer)subvolume_setup_dialog_box.getNextNumber();
 			}
