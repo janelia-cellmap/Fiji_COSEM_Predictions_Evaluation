@@ -432,7 +432,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 			prediction_resolution = getResolution(prediction_1_directory+"/"+evaluating_organelle_with_scale_1);
 			prediction_1_dimensions = n5_prediction_1.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
 			prediction_1_offset = getOffset(prediction_1_directory+"/"+evaluating_organelle_with_scale_1, prediction_resolution); //get offset in voxels
-			prediction_2_dimensions = n5_prediction_2.getDatasetAttributes(evaluating_organelle_with_scale_1).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
+			prediction_2_dimensions = n5_prediction_2.getDatasetAttributes(evaluating_organelle_with_scale_2).getDimensions(); //assume prediction 1 and prediction 2 have same dimensions
 			prediction_2_offset = getOffset(prediction_2_directory+"/"+evaluating_organelle_with_scale_2, prediction_resolution); //get offset in voxels
 
 			// TODO: NOW ASSUMES PREDICTIONS HAVE THE SAME OFFSETS/DIMENSIONS!
