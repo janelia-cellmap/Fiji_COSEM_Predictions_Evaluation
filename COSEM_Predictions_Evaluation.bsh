@@ -129,7 +129,7 @@ Random thread_A_fixed_seed_generator = new Random(0); //Thread 0 fixed seed rand
 Random thread_B_fixed_seed_generator = new Random(1); //Thread 1 fixed seed random generator
 Random currentThreadFixedSeedGenerator = null;
 use_fixed_random_seed = false;
-
+evaluate_segmentations = false;
 public class ReadAndProcessImageInThread implements Runnable {
 	//Class used to read and process images within a thread
  	
@@ -188,7 +188,12 @@ public class ReadAndProcessImageInThread implements Runnable {
 		else{//Otherwise, we set the default to 127: need to set display range to 126 for it to start display at 127
 			img_current_cropped = Views.interval(img_current, start_coordinates, end_coordinates);
 			imp_current_cropped = ImageJFunctions.wrap(img_current_cropped, "temp");
-			imp_current_cropped.setDisplayRange(126, 126);
+			if(evaluate_segmentations){
+				imp_current_cropped.setDisplayRange(0,0.5);
+			}
+			else{
+				imp_current_cropped.setDisplayRange(126,126);
+			}
 		}
 		//Set the image dimensions and add it to the image array
 		imp_current_cropped.setDimensions(1, edge_length, 1);
@@ -251,6 +256,7 @@ public class MultithreadedImageReadingAndProcessing extends Thread {
 	}
 }
 
+
 public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseListener {
 	public float getResolution(String path){
 		String attributes =  new String(Files.readAllBytes(Paths.get(path+"/attributes.json", new String[0]))); 
@@ -285,6 +291,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		data_select_dialog_box.addDirectoryField("Raw Data",Prefs.get("COSEM_Predictions_Evaluation.raw_directory","/groups/cosem/cosem/data/HeLa_Cell3_4x4x4nm/HeLa_Cell3_4x4x4nm.n5/"),75);
 		data_select_dialog_box.addFileField("Output File", Prefs.get("COSEM_Predictions_Evaluation.output_file","/groups/cosem/cosem/data/prediction_results.csv"),75);
 		data_select_dialog_box.addCheckbox("Evaluate Training Crops",false);
+		data_select_dialog_box.addCheckbox("Evaluate Segmentations",false);
 		data_select_dialog_box.addCheckbox("Use Fixed Random Seed",false);
 
 		data_select_dialog_box.showDialog();
@@ -299,8 +306,12 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 		n5_raw_and_mask = new N5FSReader(raw_directory);
 		output_file = data_select_dialog_box.getNextString();
 		use_training_crops_for_evaluation = data_select_dialog_box.getCheckboxes().get(0).getState();
-		use_fixed_random_seed = data_select_dialog_box.getCheckboxes().get(1).getState();
+		evaluate_segmentations = data_select_dialog_box.getCheckboxes().get(1).getState();
+		use_fixed_random_seed = data_select_dialog_box.getCheckboxes().get(2).getState();
 		if(use_fixed_random_seed) print("Using fixed random seed");
+		if(evaluate_segmentations){
+			print("Evaluating segmentations");
+		}
 		
 		//Get info about training crops
 		if(use_training_crops_for_evaluation){
@@ -740,7 +751,7 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 
 		statistics = new ij.process.StackStatistics(imp_organelle_cropped,256,0,255);
 		histogram = statistics.getHistogram();
-		int num_valid_organelle_voxels = Arrays.stream(histogram, 127,256).sum(); //from is inclusive, to is exclusive so this will give us 127-255	
+		int num_valid_organelle_voxels = Arrays.stream(histogram, evaluate_segmentations ? 1 : 127, 256).sum(); //from is inclusive, to is exclusive so this will give us 127-255	
 
 			
 		return num_valid_organelle_voxels;
