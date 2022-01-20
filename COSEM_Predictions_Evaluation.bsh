@@ -277,12 +277,16 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 	public float getResolution(String path){
 		String attributes =  new String(Files.readAllBytes(Paths.get(path+"/attributes.json", new String[0]))); 
 		attributes = attributes.replaceAll("\\s+","");
+		
         split_at = "resolution\":\\[";
         if(attributes.contains("pixelResolution")){
 	   	    split_at = "\"pixelResolution\":\\{\"dimensions\":\\[";
 	   	}
-	   	resolution_string = attributes.split(split_at)[1].split("\\]")[0].split(",");
+	   	else if(attributes.contains("transform")){
+	   		split_at =  "scale\":\\[";
+	   	}
 	   	
+		resolution_string = attributes.split(split_at)[1].split("\\]")[0].split(",");
 	   	resolution = new float[]{Float.parseFloat(resolution_string[0]), Float.parseFloat(resolution_string[1]), Float.parseFloat(resolution_string[2])};
 	   	return resolution[0]; //Assume symmetric resolution
 	}
