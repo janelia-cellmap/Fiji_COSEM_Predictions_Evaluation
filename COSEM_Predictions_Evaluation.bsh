@@ -378,9 +378,15 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 				raw_or_aligned = "/volumes/raw/s0";
 				print("Using s0 for "+raw_directory+"/volumes/raw.");
 			}
-			else{
+			else if(new File(raw_directory+"/volumes/raw").exists()){
 				raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/volumes/raw").getDimensions();
 				raw_or_aligned = "/volumes/raw";
+			}
+			else{
+				raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/s0").getDimensions();
+				raw_or_aligned = "/s0";
+				print("Using s0 for "+raw_directory);
+				print(raw_dimensions);
 			}
 		}
 		raw_resolution = getResolution(raw_directory+raw_or_aligned);
