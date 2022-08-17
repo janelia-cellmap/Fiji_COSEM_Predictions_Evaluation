@@ -386,7 +386,6 @@ public class COSEM_Predictions_Evaluation implements PlugIn, KeyListener, MouseL
 				raw_dimensions	= n5_raw_and_mask.getDatasetAttributes("/s0").getDimensions();
 				raw_or_aligned = "/s0";
 				print("Using s0 for "+raw_directory);
-				print(raw_dimensions);
 			}
 		}
 		raw_resolution = getResolution(raw_directory+raw_or_aligned);
